@@ -115,7 +115,10 @@ c "==> 4/5 registering provider in 9Router (prefix: ${FREEBUFF_PREFIX})"
 cp "$NINE_ROUTER_DB" "$NINE_ROUTER_DB.freebuff-pre-$(date +%Y%m%d-%H%M%S)"
 chmod 600 "$NINE_ROUTER_DB".freebuff-pre-* 2>/dev/null || true
 python3 "$REPO_DIR/freebuff9r.py" --prefix "$FREEBUFF_PREFIX" --proxy-url "http://${FREEBUFF_LISTEN%:*}:${FREEBUFF_LISTEN#*:}" register
-ok "    registered (no restart needed)"
+if command -v systemctl &>/dev/null && systemctl is-active --quiet 9router; then
+    systemctl restart 9router
+    ok "    9Router restarted (Antigravity-style UI applied)"
+fi
 
 c "==> 5/5 FreeBuff account login"
 python3 "$REPO_DIR/freebuff9r.py" --prefix "$FREEBUFF_PREFIX" login-url > /tmp/freebuff-login-flow.json

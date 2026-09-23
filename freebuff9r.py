@@ -133,7 +133,7 @@ def cmd_register(args):
     created = False
 
     if node_id is None:
-        node_id = f"openai-compatible-chat-{uuid.uuid4()}"
+        node_id = f"openai-compatible-chat-{args.prefix}"
         con.execute(
             "INSERT INTO providerNodes(id, type, name, data, createdAt, updatedAt) "
             "VALUES(?,?,?,?,?,?)",
@@ -190,6 +190,16 @@ def cmd_register(args):
 
     con.commit()
     con.close()
+
+    # Apply Antigravity-grade UI enhancements to 9Router bundles
+    patch_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "patch-9router-ui.py")
+    if os.path.exists(patch_script):
+        try:
+            import subprocess
+            subprocess.run([sys.executable, patch_script], check=False)
+        except Exception as e:
+            print(f"[!] UI patch notice: {e}")
+
     print(f"[✓] provider '{args.prefix}' ready — baseUrl={base_url}")
     print(f"    models appear as {args.prefix}/<upstream-model-id> on 9Router /v1/models")
     if created:
