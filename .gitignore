@@ -1,0 +1,18 @@
+# secrets & local state
+.env
+.deploy-secrets*
+*.db
+*.sqlite
+*.sqlite.freebuff*
+*.freebuff-backup*
+data/
+
+# build artifacts
+bin/
+BUILD_DIR/
+*.tar.gz
+
+# os/editor
+.DS_Store
+*.swp
+__pycache__/
