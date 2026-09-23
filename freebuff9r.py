@@ -175,6 +175,19 @@ def cmd_register(args):
              json.dumps(data), now_iso(), now_iso()))
         print(f"[+] created seed connection id={conn_id} (placeholder token — run add-token)")
 
+    # Mirror the proxy catalog into customModels kv rows so the dashboard's
+    # provider page lists models with per-model toggles like every other
+    # provider (same pattern as the ChatGPT/Qwen/Meta web bridges).
+    try:
+        res = sync_models(con, args.prefix, args.proxy_url)
+        if "error" not in res:
+            print(f"[+] synced {len(res['imported'])} models into customModels "
+                  f"(GUI → Providers → {args.prefix} shows them like any other provider)")
+            if res["skipped_unavailable"]:
+                print(f"    unavailable upstream (not imported): {', '.join(res['skipped_unavailable'])}")
+    except Exception as e:
+        print(f"[!] model sync skipped ({e}) — run `sync-models` later")
+
     con.commit()
     con.close()
     print(f"[✓] provider '{args.prefix}' ready — baseUrl={base_url}")
@@ -247,7 +260,16 @@ def cmd_wait_login(args):
               f"{existing[0]['id']} — nothing to do")
         con.close()
         return
-    prio = (max([r["priority"] or 0 for r in rows] or [0])) + 1
+    # replace the placeholder seed connection when present (one connection
+    # per real account, exactly like the web-bridge pattern)
+    seed = next((r for r in rows if _is_placeholder(con, node_id, r["id"])), None)
+    if seed:
+        con.execute("DELETE FROM providerConnections WHERE id=?", (seed["id"],))
+        print(f"[-] removed placeholder seed connection {seed['id']}")
+        prio = 1
+        rows = [r for r in rows if r["id"] != seed["id"]]
+    else:
+        prio = (max([r["priority"] or 0 for r in rows] or [0])) + 1
     label = user_email or user_name or f"{args.prefix} account {prio}"
     if existing and args.replace:
         conn_id = existing[0]["id"]
@@ -438,6 +460,63 @@ def cmd_remove(args):
     print("[i] restart 9Router if a model list still shows stale entries")
 
 
+# --------------------------------------------------------------------------- models sync
+def sync_models(con, prefix: str, proxy_url: str, include_unavailable: bool = False) -> dict:
+    """Mirror the proxy catalog into 9Router's customModels kv rows.
+
+    This is what makes the provider page in the 9Router dashboard behave like
+    every other provider (per-model enable/disable toggles, aliases, test
+    buttons): the GUI lists models from the customModels kv rows keyed
+    `<alias>|<model-id>|llm` — the same rows the dashboard's own
+    "Add model" / "Import models" buttons write. The ChatGPT/Qwen/Meta web
+    bridges use exactly this pattern.
+    """
+    try:
+        data = http_json(proxy_url.rstrip("/") + "/v1/models", timeout=15)
+    except Exception as e:
+        return {"error": f"proxy catalog fetch failed: {e}"}
+    all_models = [m for m in data.get("data", []) if m.get("id")]
+    keep = [m for m in all_models if include_unavailable or m.get("available", True)]
+    keep_ids = {m["id"] for m in keep}
+    now = now_iso()
+    added, removed = [], []
+    for m in keep:
+        key = f"{prefix}|{m['id']}|llm"
+        val = json.dumps({"providerAlias": prefix, "id": m["id"], "type": "llm", "name": m["id"]})
+        cur = con.execute("SELECT value FROM kv WHERE scope='customModels' AND key=?", (key,)).fetchone()
+        if cur is None or cur["value"] != val:
+            con.execute(
+                "INSERT INTO kv(scope, key, value) VALUES('customModels', ?, ?) "
+                "ON CONFLICT(scope, key) DO UPDATE SET value=excluded.value",
+                (key, val))
+            if cur is None:
+                added.append(m["id"])
+    for row in con.execute("SELECT key FROM kv WHERE scope='customModels' AND key LIKE ?", (f"{prefix}|%",)):
+        mid = row["key"].split("|")[1]
+        if mid not in keep_ids:
+            con.execute("DELETE FROM kv WHERE scope='customModels' AND key=?", (row["key"],))
+            removed.append(mid)
+    return {"imported": [m["id"] for m in keep], "added": added, "removed": removed,
+            "skipped_unavailable": sorted({m["id"] for m in all_models} - keep_ids)}
+
+
+def cmd_sync_models(args):
+    con = open_db(args.db)
+    node_id, node_data, _ = find_node(con, args.prefix)
+    if node_id is None:
+        sys.exit("provider node not found — run `register` first")
+    res = sync_models(con, args.prefix, args.proxy_url, include_unavailable=args.all)
+    con.commit()
+    con.close()
+    if "error" in res:
+        sys.exit(res["error"])
+    print(f"[✓] customModels synced for '{args.prefix}': "
+          f"{len(res['imported'])} imported, +{len(res['added'])} new, -{len(res['removed'])} removed")
+    if res["skipped_unavailable"]:
+        print(f"    unavailable upstream (not imported): {', '.join(res['skipped_unavailable'])}")
+    print("    dashboard → Providers → freebuff now lists these models like any other provider")
+
+
 # --------------------------------------------------------------------------- helpers
 def cmd_print_key(args):
     """Print the first active 9Router API key (for scripts/verify.sh)."""
@@ -493,6 +572,10 @@ def main():
 
     s = sub.add_parser("remove", help="remove node + connections + kv rows")
     s.set_defaults(fn=cmd_remove)
+
+    s = sub.add_parser("sync-models", help="mirror the proxy catalog into customModels rows (GUI parity)")
+    s.add_argument("--all", action="store_true", help="also import models upstream marks unavailable")
+    s.set_defaults(fn=cmd_sync_models)
 
     s = sub.add_parser("_print_key", help=argparse.SUPPRESS)
     s.set_defaults(fn=cmd_print_key)
