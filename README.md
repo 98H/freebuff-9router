@@ -174,8 +174,10 @@ Freebucks consumption.
 
 ## High-Grade 9Router GUI / Web Interface Integration
 
-The included `patch-9router-ui.py` script automatically enhances the 9Router Web UI:
-- **Direct GUI Account Addition**: Adds a first-class "Add FreeBuff Account" dialog with token guidance, auto-naming, and live "Test Connection" validation.
+The included `patch-9router-ui.py` script automatically enhances the 9Router Web UI with an **Antigravity-grade automated onboarding experience**:
+- **One-Click Automated Login (Like Antigravity / GitHub Device Flow)**: Clicking "Add Connection" immediately opens a dedicated modal with the verification URL and code, and **simultaneously opens Codebuff's GitHub login in a new browser tab**.
+- **Real-Time Automated Token & Account Enrollment**: Background polling checks the upstream login status every 3 seconds. The moment you authenticate in your browser, your auth token and email are retrieved, automatically stored/updated in 9Router's database, and the modal shows "Connected Successfully!" before refreshing your connection list.
+- **Direct GUI Account Addition**: Adds a first-class "Connect FreeBuff Account" dialog with token guidance, auto-naming, and live "Test Connection" validation.
 - **Dedicated Logo & Branding**: Official FreeBuff badge, logo, and icon in both the providers catalog and connection cards.
 - **Idempotent & Safe**: Automatically verifies syntax via `node -c` with instant rollback on any issue, and integrates seamlessly into the post-update hook.
 

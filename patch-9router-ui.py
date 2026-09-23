@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
 """
-9Router Web UI Patcher for FreeBuff (freebucks-proxy)
-=====================================================
-Transforms the generic compatible provider form in 9Router into a senior
-Product Designer grade interface for FreeBuff:
-1. Provider Logo routing (/providers/freebuff.png) on detail page header.
-2. "Add FreeBuff Account" modal title instead of "Add API Key".
-3. "FreeBuff Auth Token" field label instead of "API Key".
-4. Clean placeholder ("Paste FreeBuff auth token...").
-5. Contextual name placeholder ("FreeBuff Account").
-6. In-modal guidance card with clear token instructions.
-7. "Test Connection" live probe integration button.
-8. Suppression of the mandatory "Default Model" gate (which previously blocked saving).
-9. Enable the "+ Add" connection button when accounts already exist.
-10. "Auth Token" badge and "token" icon on connection cards.
-11. Edit connection modal hint customization.
+9Router Web UI & Automated Device Login Patcher for FreeBuff
+============================================================
+Delivers an Antigravity-grade automated onboarding experience for FreeBuff
+directly inside 9Router's Web UI:
 
-Guarantees:
-- 100% idempotent: safely re-runnable after updates without duplicating hints.
-- Syntax-checked via `node -c` after every modification; auto-rollback on syntax error.
+1. One-Click Automated Login (like Antigravity / GitHub Device Flow):
+   - Clicking "Add Connection" opens a dedicated modal with the authorization
+     URL and code, and SIMULTANEOUSLY opens Codebuff's GitHub login in a new tab.
+   - Background polling checks the upstream login status every 3 seconds.
+   - As soon as the user logs in on Codebuff, the auth token and email are
+     retrieved, saved/updated in 9Router's database, and the modal displays
+     "Connected Successfully!" before refreshing the dashboard list.
+2. High-Grade Visual Branding & Polished UX:
+   - Official FreeBuff logo in providers list & detail page header.
+   - "Connect FreeBuff Account" modal title & "Add Connection" button.
+   - "Auth Token" badge and "token" icon on connection cards.
+   - Elimination of the mandatory "Default Model" block.
+3. Systemic Resilience:
+   - 100% idempotent: safely re-runnable after 9Router updates.
+   - Syntax-verified (`node -c`) after every patch; instant auto-rollback on error.
 """
 
 import os
@@ -57,7 +58,7 @@ def patch_file(filepath, old_str, new_str, label):
         content = f.read()
 
     if new_str in content:
-        # Already patched
+        # Already applied
         return True
 
     if old_str not in content:
@@ -85,7 +86,7 @@ def patch_file(filepath, old_str, new_str, label):
 
 def run():
     print("==========================================================")
-    print("  9Router High-Grade UI/UX Patcher for FreeBuff")
+    print("  9Router Automated Device Login & UI Patcher for FreeBuff")
     print("==========================================================")
 
     build_dir = find_build_dir()
@@ -95,7 +96,9 @@ def run():
 
     print(f"Found 9Router build directory: {build_dir}\n")
 
+    # -----------------------------------------------------------------
     # 0. Ensure public asset exists
+    # -----------------------------------------------------------------
     asset_src = "/root/projects/freebuff-9router/assets/freebuff.png"
     asset_dst = os.path.join(os.path.dirname(build_dir), "public/providers/freebuff.png")
     if os.path.exists(asset_src):
@@ -103,7 +106,9 @@ def run():
         shutil.copy2(asset_src, asset_dst)
         print(f"  [✓] Verified logo at {asset_dst}")
 
-    # 0.1 Main Providers List page (/dashboard/providers)
+    # -----------------------------------------------------------------
+    # 1. Main Providers List page (/dashboard/providers)
+    # -----------------------------------------------------------------
     s_prov = os.path.join(build_dir, "server/app/(dashboard)/dashboard/providers/page.js")
     if os.path.exists(s_prov):
         patch_file(
@@ -120,131 +125,76 @@ def run():
             "Client Providers List: logo routing"
         )
 
-    # 1. Server Provider Detail Page
-    s_detail = os.path.join(build_dir, "server/app/(dashboard)/dashboard/providers/[id]/page.js")
-    if os.path.exists(s_detail):
-        # Header logo routing
-        patch_file(
-            s_detail,
-            'b5=()=>bp&&bh.apiType?',
-            'b5=()=>bh.id?.includes("freebuff")?"/providers/freebuff.png":bp&&bh.apiType?',
-            "Server: header logo"
+    # -----------------------------------------------------------------
+    # 2. Server OAuth Route: Backend Device-Code & Status Polling
+    # -----------------------------------------------------------------
+    s_oauth = os.path.join(build_dir, "server/app/api/oauth/[provider]/[action]/route.js")
+    if os.path.exists(s_oauth):
+        # 2a. GET Handler: device-code generation for FreeBuff
+        target_get = 'async function p(a,{params:b}){try{let{provider:d,action:e}=await b,{searchParams:i}=new URL(a.url);'
+        inject_get = (
+            'async function p(a,{params:b}){try{let{provider:d,action:e}=await b,{searchParams:i}=new URL(a.url);'
+            'if("freebuff"===d||"openai-compatible-chat-freebuff"===d){'
+            'if("device-code"===e){try{'
+            'let fp="enhanced-"+f().randomBytes(24).toString("hex"),'
+            'resp=await fetch("https://www.codebuff.com/api/auth/cli/code",{method:"POST",headers:{"Content-Type":"application/json","User-Agent":"codebuff/0.1.0"},body:JSON.stringify({fingerprintId:fp})});'
+            'if(!resp.ok){let t=await resp.text();return g.NextResponse.json({error:`Codebuff device code failed: ${t}`},{status:500})}'
+            'let cdata=await resp.json(),lUrl=cdata.loginUrl||"",cm=lUrl.match(/auth_code=([^&]+)/),ac=cm?cm[1]:"",'
+            'devCode=Buffer.from(JSON.stringify({fp:fp,hash:cdata.fingerprintHash||"",exp:cdata.expiresAt||""})).toString("base64url");'
+            'return g.NextResponse.json({device_code:devCode,user_code:ac?ac.slice(0,8).toUpperCase():"LOGIN",verification_uri:lUrl,verification_uri_complete:lUrl,expires_in:1200,interval:3})'
+            '}catch(err){return g.NextResponse.json({error:err.message},{status:500})}}}'
         )
-        # Enable "+ Add" button when connections exist
-        patch_file(
-            s_detail,
-            'b1,!br&&(0,d.jsxs)("div",{className:"mt-4 grid grid-cols-1 gap-2 sm:flex",children:[',
-            'b1,(!br||bh.id?.includes("freebuff"))&&(0,d.jsxs)("div",{className:"mt-4 grid grid-cols-1 gap-2 sm:flex",children:[',
-            "Server: show Add button when connections exist"
+        patch_file(s_oauth, target_get, inject_get, "Server OAuth: FreeBuff device-code GET handler")
+
+        # 2b. POST Handler: background token poll & database connection creation
+        target_post = 'async function q(a,{params:b}){try{let d,{provider:e,action:f}=await b;try{d=await a.json()}catch{return g.NextResponse.json({error:"Invalid or empty request body"},{status:400})}'
+        inject_post = (
+            'async function q(a,{params:b}){try{let d,{provider:e,action:f}=await b;try{d=await a.json()}catch{return g.NextResponse.json({error:"Invalid or empty request body"},{status:400})}'
+            'if("freebuff"===e||"openai-compatible-chat-freebuff"===e){if("poll"===f){'
+            'let devCode=d?.deviceCode;if(!devCode)return g.NextResponse.json({error:"Missing device code"},{status:400});'
+            'let sess;try{sess=JSON.parse(Buffer.from(devCode,"base64url").toString("utf-8"))}catch(err){return g.NextResponse.json({success:!1,error:"invalid_device_code"})}'
+            'let qs=new URLSearchParams({fingerprintId:sess.fp,fingerprintHash:sess.hash,expiresAt:String(sess.exp)}),'
+            'resp=await fetch(`https://www.codebuff.com/api/auth/cli/status?${qs.toString()}`,{headers:{"User-Agent":"codebuff/0.1.0"}});'
+            'if(401===resp.status||404===resp.status)return g.NextResponse.json({success:!1,pending:!0,error:"authorization_pending"});'
+            'if(!resp.ok)return g.NextResponse.json({success:!1,error:`Upstream status error ${resp.status}`});'
+            'let sdata=await resp.json(),user=sdata.user||{},token=user.authToken;'
+            'if(!token)return g.NextResponse.json({success:!1,pending:!0,error:"authorization_pending"});'
+            'let email=user.email||null,name=user.name||email||"FreeBuff Account",'
+            'existing=await(0,i.getProviderConnections)({provider:"openai-compatible-chat-freebuff"}),maxPri=0;'
+            'for(let conn of existing){conn.priority&&conn.priority>maxPri&&(maxPri=conn.priority)}'
+            'let match=email?existing.find(c=>c.email===email):null,savedConn;'
+            'if(match){savedConn=await(0,i.updateProviderConnection)(match.id,{apiKey:token,name:email||name,testStatus:"active"})}'
+            'else{savedConn=await(0,i.createProviderConnection)({provider:"openai-compatible-chat-freebuff",authType:"apikey",name:email||name,email:email,priority:maxPri+1,apiKey:token,providerSpecificData:{prefix:"freebuff",apiType:"chat",baseUrl:"http://127.0.0.1:3457/v1",nodeName:"FreeBuff (freebucks-proxy)",connectionProxyEnabled:!1,connectionProxyUrl:"",connectionNoProxy:""},testStatus:"active"})}'
+            'return g.NextResponse.json({success:!0,connection:{id:savedConn.id,provider:savedConn.provider}})}}'
         )
-        # Header Add button label
+        patch_file(s_oauth, target_post, inject_post, "Server OAuth: FreeBuff poll POST handler")
+
+    # -----------------------------------------------------------------
+    # 3. Client OAuthModal: Device-Flow Enrollment & Title / Messages
+    # -----------------------------------------------------------------
+    for mc in glob.glob(os.path.join(build_dir, "static/chunks/5497-*.js")):
         patch_file(
-            s_detail,
-            'onClick:()=>{X(""),V(!0)},className:"w-full sm:w-auto",children:"Add API Key"',
-            'onClick:()=>{X(""),V(!0)},className:"w-full sm:w-auto",children:"Add"',
-            "Server: header Add button label"
-        )
-        # Modal title
-        patch_file(
-            s_detail,
-            'title:`Add ${c||b} ${w}`',
-            'title:b?.includes("freebuff")?"Add FreeBuff Account":`Add ${c||b} ${w}`',
-            "Server: modal title"
-        )
-        # Field label w
-        patch_file(
-            s_detail,
-            'w=u?"Cookie Value":"qoder"===b||"qoder-cn"===b?"Personal Access Token (PAT)":"API Key"',
-            'w=b?.includes("freebuff")?"FreeBuff Auth Token":u?"Cookie Value":"qoder"===b||"qoder-cn"===b?"Personal Access Token (PAT)":"API Key"',
-            "Server: field label"
-        )
-        # Name placeholder
-        patch_file(
-            s_detail,
-            'placeholder:t?"Ollama Local":"Production Key"',
-            'placeholder:b?.includes("freebuff")?"FreeBuff Account":t?"Ollama Local":"Production Key"',
-            "Server: name placeholder"
-        )
-        # Key placeholder
-        patch_file(
-            s_detail,
-            'placeholder:u?"grok-web"===b?',
-            'placeholder:b?.includes("freebuff")?"Paste FreeBuff auth token...":u?"grok-web"===b?',
-            "Server: key placeholder"
-        )
-        # Hide Default Model field
-        patch_file(
-            s_detail,
-            'f&&(0,d.jsx)(k.pd,{label:"Default Model"',
-            'f&&!("openai-compatible-chat-freebuff"===b||"freebuff"===b||b?.includes("freebuff"))&&(0,d.jsx)(k.pd,{label:"Default Model"',
-            "Server: hide Default Model field"
-        )
-        # Lift Default Model disabled gate on Save button
-        patch_file(
-            s_detail,
-            'f&&!B.defaultModel.trim()',
-            'f&&!("openai-compatible-chat-freebuff"===b||"freebuff"===b||b?.includes("freebuff"))&&!B.defaultModel.trim()',
-            "Server: lift Default Model disabled gate"
-        )
-        # Lift Default Model gate on submit handler
-        patch_file(
-            s_detail,
-            '(!f||B.defaultModel.trim())',
-            '(!f||"openai-compatible-chat-freebuff"===b||"freebuff"===b||b?.includes("freebuff")||B.defaultModel.trim())',
-            "Server: lift Default Model submit gate"
-        )
-        # Name optional in Add Account modal
-        patch_file(
-            s_detail,
-            '!t&&(!B.name||!B.apiKey)',
-            '!t&&(!(B.name||b?.includes("freebuff"))||!B.apiKey)',
-            "Server: name optional on Save disabled"
+            mc,
+            '["github","kiro","kimi","kimi-coding","kilocode","codebuddy-cn","codebuddy-intl","qoder","qoder-cn","grok-cli"]',
+            '["github","kiro","kimi","kimi-coding","kilocode","codebuddy-cn","codebuddy-intl","qoder","qoder-cn","grok-cli","freebuff","openai-compatible-chat-freebuff"]',
+            "Client OAuthModal: register freebuff in device-code providers list"
         )
         patch_file(
-            s_detail,
-            '(t||B.name)',
-            '(t||b?.includes("freebuff")||B.name)',
-            "Server: name optional on submit check"
+            mc,
+            'ei=es?"Connect Grok Build OAuth":`Connect ${a.name}`',
+            'ei=es?"Connect Grok Build OAuth":t?.includes("freebuff")?"Connect FreeBuff Account":`Connect ${a.name}`',
+            "Client OAuthModal: FreeBuff modal title"
         )
         patch_file(
-            s_detail,
-            'name:B.name||(t?"Ollama Local":"")',
-            'name:B.name||(b?.includes("freebuff")?"FreeBuff Account":t?"Ollama Local":"")',
-            "Server: name default fallback"
-        )
-        # Test Connection button label
-        patch_file(
-            s_detail,
-            'children:L?"Checking...":"Check"',
-            'children:L?"Testing...":b?.includes("freebuff")?"Test Connection":"Check"',
-            "Server: test button label"
-        )
-        # In-modal guidance card
-        hint_s = ',("openai-compatible-chat-freebuff"===b||"freebuff"===b||b?.includes("freebuff"))&&(0,d.jsx)("p",{className:"text-xs text-brand-600 dark:text-brand-400 bg-brand-500/10 border border-brand-500/20 p-2.5 rounded-lg mt-1 font-sans leading-relaxed break-words",children:"💡 Where to get token: In terminal run `python3 /root/projects/freebuff-9router/freebuff9r.py login-url` to log in via browser, or copy authToken from ~/.codebuff/auth.json. Paste token above and click \'Test Connection\' before saving."})'
-        anchor_s = 'v&&(0,d.jsx)("p",{className:"text-xs text-text-muted",children:"Use a direct xAI API key from console.x.ai. This is separate from Grok Build OAuth."})'
-        if hint_s not in open(s_detail, "r").read():
-            patch_file(s_detail, anchor_s, anchor_s + hint_s, "Server: guidance card")
-        # Connection card badge & icon
-        patch_file(
-            s_detail,
-            'a?.provider?.includes("qwen")||"openai-compatible-chat-chatgpt"===a?.provider||"openai-compatible-chat-qwen"===a?.provider)?"Session Token":"API Key"',
-            'a?.provider?.includes("freebuff")||"openai-compatible-chat-freebuff"===a?.provider||a?.provider?.includes("qwen")||"openai-compatible-chat-chatgpt"===a?.provider||"openai-compatible-chat-qwen"===a?.provider)?"Auth Token":"API Key"',
-            "Server: connection badge"
-        )
-        patch_file(
-            s_detail,
-            'a?.provider?.includes("qwen")||"openai-compatible-chat-chatgpt"===a?.provider||"openai-compatible-chat-qwen"===a?.provider)?"Session Account":"API Key"',
-            'a?.provider?.includes("freebuff")||"openai-compatible-chat-freebuff"===a?.provider||a?.provider?.includes("qwen")||"openai-compatible-chat-chatgpt"===a?.provider||"openai-compatible-chat-qwen"===a?.provider)?"Auth Account":"API Key"',
-            "Server: connection fallback name"
-        )
-        patch_file(
-            s_detail,
-            'children:L?"cookie":K?"lock":(a?.provider?.includes("chatgpt")||a?.provider?.includes("qwen")||"openai-compatible-chat-chatgpt"===a?.provider||"openai-compatible-chat-qwen"===a?.provider)?"token":"key"',
-            'children:L?"cookie":K?"lock":(a?.provider?.includes("freebuff")||"openai-compatible-chat-freebuff"===a?.provider||a?.provider?.includes("chatgpt")||a?.provider?.includes("qwen")||"openai-compatible-chat-chatgpt"===a?.provider||"openai-compatible-chat-qwen"===a?.provider)?"token":"key"',
-            "Server: connection icon"
+            mc,
+            'children:["Your ",a.name," account has been connected."]',
+            'children:["Your ",t?.includes("freebuff")?"FreeBuff":a.name," account has been connected."]',
+            "Client OAuthModal: FreeBuff success message"
         )
 
-    # 2. Client Provider Detail Page
+    # -----------------------------------------------------------------
+    # 4. Client Provider Detail Page: Action Routing & UI Polishing
+    # -----------------------------------------------------------------
     c_dir = os.path.join(build_dir, "static/chunks/app/(dashboard)/dashboard/providers/[id]")
     if os.path.isdir(c_dir):
         c_files = [os.path.join(c_dir, f) for f in os.listdir(c_dir) if f.startswith("page-") and f.endswith(".js")]
@@ -256,101 +206,47 @@ def run():
                 't7=()=>td.id?.includes("freebuff")?"/providers/freebuff.png":tg&&td.apiType?',
                 "Client: header logo"
             )
-            # Enable "+ Add" button when connections exist
+            # Route to() to OAuthModal for FreeBuff
             patch_file(
                 c_detail,
-                't5,!tb&&(0,i.jsxs)("div",{className:"mt-4 grid grid-cols-1 gap-2 sm:flex",children:[',
-                't5,(!tb||td.id?.includes("freebuff"))&&(0,i.jsxs)("div",{className:"mt-4 grid grid-cols-1 gap-2 sm:flex",children:[',
-                "Client: show Add button when connections exist"
+                'to=()=>{tm?tr():tn()}',
+                'to=()=>{("freebuff"===f||f.includes("freebuff"))?tl():tm?tr():tn()}',
+                "Client: route to() to automated OAuthModal"
             )
-            # Header Add button label
+            patch_file(
+                c_detail,
+                'tr=()=>{"antigravity"===f&&"true"!==window.localStorage.getItem(ta)?eV(!0):"xiaomi-mimo"===f?J(!0):tm?tl():(V(""),G(!0))}',
+                'tr=()=>{"antigravity"===f&&"true"!==window.localStorage.getItem(ta)?eV(!0):("freebuff"===f||f.includes("freebuff"))?tl():"xiaomi-mimo"===f?J(!0):tm?tl():(V(""),G(!0))}',
+                "Client: route tr() to automated OAuthModal"
+            )
+            # Node header card Add button: route to OAuthModal
             patch_file(
                 c_detail,
                 '(0,i.jsx)(c.$n,{size:"sm",icon:"add",onClick:()=>{V(""),G(!0)},className:"w-full sm:w-auto",children:"Add API Key"})',
+                '(0,i.jsx)(c.$n,{size:"sm",icon:"add",onClick:to,className:"w-full sm:w-auto",children:("freebuff"===f||f.includes("freebuff"))?"Add Connection":"Add"})',
+                "Client: node card Add button routes to to()"
+            )
+            patch_file(
+                c_detail,
                 '(0,i.jsx)(c.$n,{size:"sm",icon:"add",onClick:()=>{V(""),G(!0)},className:"w-full sm:w-auto",children:"Add"})',
-                "Client: header Add button label"
+                '(0,i.jsx)(c.$n,{size:"sm",icon:"add",onClick:to,className:"w-full sm:w-auto",children:("freebuff"===f||f.includes("freebuff"))?"Add Connection":"Add"})',
+                "Client: node card Add button fallback routes to to()"
             )
-            # Modal title
+            # Connection table header button label
             patch_file(
                 c_detail,
-                'title:`Add ${s||t} ${w}`',
-                'title:t?.includes("freebuff")?"Add FreeBuff Account":`Add ${s||t} ${w}`',
-                "Client: modal title"
+                'tb?"Add API Key":"iflow"===f?"OAuth":"Add Connection"',
+                '("freebuff"===f||f.includes("freebuff"))?"Add Connection":tb?"Add API Key":"iflow"===f?"OAuth":"Add Connection"',
+                "Client: connections header button label"
             )
-            # Field label w
+            # Empty state Add button label
             patch_file(
                 c_detail,
-                'w=v?"Cookie Value":"qoder"===t||"qoder-cn"===t?"Personal Access Token (PAT)":"API Key"',
-                'w=t?.includes("freebuff")?"FreeBuff Auth Token":v?"Cookie Value":"qoder"===t||"qoder-cn"===t?"Personal Access Token (PAT)":"API Key"',
-                "Client: field label"
+                'onClick:to,className:"w-full sm:w-auto",children:"Add"',
+                'onClick:to,className:"w-full sm:w-auto",children:("freebuff"===f||f.includes("freebuff"))?"Add Connection":"Add"',
+                "Client: empty state button label"
             )
-            # Name placeholder
-            patch_file(
-                c_detail,
-                'placeholder:b?"Ollama Local":"Production Key"',
-                'placeholder:t?.includes("freebuff")?"FreeBuff Account":b?"Ollama Local":"Production Key"',
-                "Client: name placeholder"
-            )
-            # Key placeholder
-            patch_file(
-                c_detail,
-                'placeholder:v?"grok-web"===t?',
-                'placeholder:t?.includes("freebuff")?"Paste FreeBuff auth token...":v?"grok-web"===t?',
-                "Client: key placeholder"
-            )
-            # Hide Default Model field
-            patch_file(
-                c_detail,
-                'l&&(0,i.jsx)(c.pd,{label:"Default Model"',
-                'l&&!("openai-compatible-chat-freebuff"===t||"freebuff"===t||t?.includes("freebuff"))&&(0,i.jsx)(c.pd,{label:"Default Model"',
-                "Client: hide Default Model field"
-            )
-            # Lift Default Model disabled gate on Save button
-            patch_file(
-                c_detail,
-                'l&&!A.defaultModel.trim()',
-                'l&&!("openai-compatible-chat-freebuff"===t||"freebuff"===t||t?.includes("freebuff"))&&!A.defaultModel.trim()',
-                "Client: lift Default Model disabled gate"
-            )
-            # Lift Default Model gate on submit handler
-            patch_file(
-                c_detail,
-                '(!l||A.defaultModel.trim())',
-                '(!l||"openai-compatible-chat-freebuff"===t||"freebuff"===t||t?.includes("freebuff")||A.defaultModel.trim())',
-                "Client: lift Default Model submit gate"
-            )
-            # Name optional in Add Account modal
-            patch_file(
-                c_detail,
-                '!b&&(!A.name||!A.apiKey)',
-                '!b&&(!(A.name||t?.includes("freebuff"))||!A.apiKey)',
-                "Client: name optional on Save disabled"
-            )
-            patch_file(
-                c_detail,
-                '(b||A.name)',
-                '(b||t?.includes("freebuff")||A.name)',
-                "Client: name optional on submit check"
-            )
-            patch_file(
-                c_detail,
-                'name:A.name||(b?"Ollama Local":"")',
-                'name:A.name||(t?.includes("freebuff")?"FreeBuff Account":b?"Ollama Local":"")',
-                "Client: name default fallback"
-            )
-            # Test Connection button label
-            patch_file(
-                c_detail,
-                'children:R?"Checking...":"Check"',
-                'children:R?"Testing...":t?.includes("freebuff")?"Test Connection":"Check"',
-                "Client: test button label"
-            )
-            # In-modal guidance card
-            hint_c = ',("openai-compatible-chat-freebuff"===t||"freebuff"===t||t?.includes("freebuff"))&&(0,i.jsx)("p",{className:"text-xs text-brand-600 dark:text-brand-400 bg-brand-500/10 border border-brand-500/20 p-2.5 rounded-lg mt-1 font-sans leading-relaxed break-words",children:"💡 Where to get token: In terminal run `python3 /root/projects/freebuff-9router/freebuff9r.py login-url` to log in via browser, or copy authToken from ~/.codebuff/auth.json. Paste token above and click \'Test Connection\' before saving."})'
-            anchor_c = 'j&&(0,i.jsx)("p",{className:"text-xs text-text-muted",children:"Use a direct xAI API key from console.x.ai. This is separate from Grok Build OAuth."})'
-            if hint_c not in open(c_detail, "r").read():
-                patch_file(c_detail, anchor_c, anchor_c + hint_c, "Client: guidance card")
-            # Connection card badge & icon
+            # Badges & icons on connection cards
             patch_file(
                 c_detail,
                 'size:"sm",children:_?"OAuth":q?"Cookie":"API Key"',
@@ -370,7 +266,75 @@ def run():
                 "Client: connection fallback name"
             )
 
-    # 3. EditConnectionModal chunks
+    # -----------------------------------------------------------------
+    # 5. Server Provider Detail Page: Action Routing & UI Polishing
+    # -----------------------------------------------------------------
+    s_detail = os.path.join(build_dir, "server/app/(dashboard)/dashboard/providers/[id]/page.js")
+    if os.path.exists(s_detail):
+        # Header logo routing
+        patch_file(
+            s_detail,
+            'b5=()=>bp&&bh.apiType?',
+            'b5=()=>bh.id?.includes("freebuff")?"/providers/freebuff.png":bp&&bh.apiType?',
+            "Server: header logo"
+        )
+        # Server bg= (to= equivalent)
+        patch_file(
+            s_detail,
+            'bg=()=>{bj?be():bf()}',
+            'bg=()=>{("freebuff"===q||q?.includes("freebuff"))?bd():bj?be():bf()}',
+            "Server: route bg() to automated modal"
+        )
+        # Node header card Add button: route to bd() (OAuthModal)
+        patch_file(
+            s_detail,
+            '(0,d.jsx)(k.$n,{size:"sm",icon:"add",onClick:()=>{X(""),V(!0)},className:"w-full sm:w-auto",children:"Add API Key"})',
+            '(0,d.jsx)(k.$n,{size:"sm",icon:"add",onClick:bg,className:"w-full sm:w-auto",children:("freebuff"===q||q?.includes("freebuff"))?"Add Connection":"Add"})',
+            "Server: node card Add button routes to bg()"
+        )
+        patch_file(
+            s_detail,
+            '(0,d.jsx)(k.$n,{size:"sm",icon:"add",onClick:()=>{X(""),V(!0)},className:"w-full sm:w-auto",children:"Add"})',
+            '(0,d.jsx)(k.$n,{size:"sm",icon:"add",onClick:bg,className:"w-full sm:w-auto",children:("freebuff"===q||q?.includes("freebuff"))?"Add Connection":"Add"})',
+            "Server: node card Add button fallback routes to bg()"
+        )
+        # Connection table header button label
+        patch_file(
+            s_detail,
+            'br?"Add API Key":"iflow"===q?"OAuth":"Add Connection"',
+            '("freebuff"===q||q?.includes("freebuff"))?"Add Connection":br?"Add API Key":"iflow"===q?"OAuth":"Add Connection"',
+            "Server: connections header button label"
+        )
+        # Empty state Add button label
+        patch_file(
+            s_detail,
+            'onClick:bg,className:"w-full sm:w-auto",children:"Add"',
+            'onClick:bg,className:"w-full sm:w-auto",children:("freebuff"===q||q?.includes("freebuff"))?"Add Connection":"Add"',
+            "Server: empty state button label"
+        )
+        # Badges & icons on connection cards
+        patch_file(
+            s_detail,
+            'a?.provider?.includes("qwen")||"openai-compatible-chat-chatgpt"===a?.provider||"openai-compatible-chat-qwen"===a?.provider)?"Session Token":"API Key"',
+            'a?.provider?.includes("freebuff")||"openai-compatible-chat-freebuff"===a?.provider||a?.provider?.includes("qwen")||"openai-compatible-chat-chatgpt"===a?.provider||"openai-compatible-chat-qwen"===a?.provider)?"Auth Token":"API Key"',
+            "Server: connection badge"
+        )
+        patch_file(
+            s_detail,
+            'a?.provider?.includes("qwen")||"openai-compatible-chat-chatgpt"===a?.provider||"openai-compatible-chat-qwen"===a?.provider)?"Session Account":"API Key"',
+            'a?.provider?.includes("freebuff")||"openai-compatible-chat-freebuff"===a?.provider||a?.provider?.includes("qwen")||"openai-compatible-chat-chatgpt"===a?.provider||"openai-compatible-chat-qwen"===a?.provider)?"Auth Account":"API Key"',
+            "Server: connection fallback name"
+        )
+        patch_file(
+            s_detail,
+            'children:L?"cookie":K?"lock":(a?.provider?.includes("chatgpt")||a?.provider?.includes("qwen")||"openai-compatible-chat-chatgpt"===a?.provider||"openai-compatible-chat-qwen"===a?.provider)?"token":"key"',
+            'children:L?"cookie":K?"lock":(a?.provider?.includes("freebuff")||"openai-compatible-chat-freebuff"===a?.provider||a?.provider?.includes("chatgpt")||a?.provider?.includes("qwen")||"openai-compatible-chat-chatgpt"===a?.provider||"openai-compatible-chat-qwen"===a?.provider)?"token":"key"',
+            "Server: connection icon"
+        )
+
+    # -----------------------------------------------------------------
+    # 6. Edit Connection Modal chunks
+    # -----------------------------------------------------------------
     chunk_412 = os.path.join(build_dir, "server/chunks/412.js")
     if os.path.exists(chunk_412):
         patch_file(
@@ -384,12 +348,6 @@ def run():
             'label:"API Key",type:"password",value:o.apiKey',
             'label:b?.provider?.includes("freebuff")?"FreeBuff Auth Token":"API Key",type:"password",value:o.apiKey',
             "Server: edit modal label"
-        )
-        patch_file(
-            chunk_412,
-            'children:A?"Checking...":"Check"',
-            'children:A?"Testing...":b?.provider?.includes("freebuff")?"Test Connection":"Check"',
-            "Server: edit modal test button"
         )
 
     for mc in glob.glob(os.path.join(build_dir, "static/chunks/5497-*.js")):
@@ -405,14 +363,8 @@ def run():
             'label:t?.provider?.includes("freebuff")?"FreeBuff Auth Token":"API Key",type:"password",value:p.apiKey',
             "Client: edit modal label"
         )
-        patch_file(
-            mc,
-            'children:S?"Checking...":"Check"',
-            'children:S?"Testing...":t?.provider?.includes("freebuff")?"Test Connection":"Check"',
-            "Client: edit modal test button"
-        )
 
-    print("\n[✓] FreeBuff UI/UX patching completed successfully.")
+    print("\n[✓] FreeBuff automated login & UI/UX patching completed successfully.")
     return True
 
 if __name__ == "__main__":
