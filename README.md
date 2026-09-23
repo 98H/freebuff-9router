@@ -20,8 +20,11 @@ codebuff.com  (FreeBuff upstream)
 
 ## What you get
 
-- `freebuff/<model-id>` entries on `GET /v1/models` of 9Router — live-fetched from the
-  proxy catalog, never stale.
+- `freebuff/<model-id>` entries on `GET /v1/models` of 9Router — imported into
+  9Router's `customModels` registry (the same mechanism the ChatGPT/Qwen/Meta
+  web bridges use), so the dashboard provider page offers per-model toggles
+  like any built-in provider. Re-sync after upstream model changes with
+  `python3 freebuff9r.py sync-models`.
 - One 9Router **connection per FreeBuff account**; 9Router's native multi-connection
   rotation spreads traffic across your accounts (same pattern as multiple Cline accounts).
 - **Bridge mode** end to end: the FreeBuff token lives *only* in 9Router's SQLite and is
@@ -159,7 +162,7 @@ upstream tag fixes this, `install.sh` will tell you to delete the patch.
 ## Files
 
 ```
-freebuff9r.py                  all-in-one manager (register/add-token/login-url/status/verify/remove)
+freebuff9r.py                  all-in-one manager (register/add-token/login-url/wait-login/sync-models/status/verify/remove)
 install.sh                     end-to-end installer (build + systemd + registration + login)
 scripts/verify.sh              CI-style smoke test of the whole chain
 systemd/freebucks-proxy.service  service unit (hardened, loopback-only)
