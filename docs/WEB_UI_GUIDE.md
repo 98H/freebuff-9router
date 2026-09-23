@@ -54,18 +54,38 @@ With the **FreeBuff automated Device Code integration**, onboarding is completel
 
 ## 3. Official Visual Identity & High-Resolution Branding
 
-The provider includes the authentic, canonical **Codebuff / FreeBuff brand identity**:
-- **Design Motif**: A sleek black rounded square (squircle) enclosing an AI 4-pointed sparkle star and a terminal cursor underscore.
+The provider includes the authentic, canonical **FreeBuff brand identity** extracted directly from `freebuff.com`:
+- **Design Motif**: A sleek black rounded square (squircle) enclosing the official geometric white **F** glyph composed of two interlocking L-shaped ribbons.
 - **Color Scheme**: High-contrast pure white glyphs (`#FFFFFF`) against a deep dark background (`#000000`), with transparent outer corners.
 - **Assets Provided**:
-  - `assets/freebuff.svg`: Scalable vector source extracted directly from upstream design specifications.
-  - `assets/freebuff.png` (512x512): Ultra high-resolution raster image.
+  - `assets/freebuff.svg`: Scalable vector source reproducing the official SVG path with decimal precision (96.9% IoU overlap with the official web icon).
+  - `assets/freebuff.png` (512x512): Ultra high-resolution raster image with crystal-clear edges and full alpha transparency.
   - Multi-resolution variants: `freebuff-256.png` (256x256), `freebuff-128.png` (128x128), and `freebuff-32.png` (32x32).
 - **Dashboard Display**: Served natively from 9Router's static provider registry at `/providers/freebuff.png`.
 
 ---
 
-## 4. Multi-Account Management & Pool Operations
+## 4. Antigravity-Grade Available Models UI & Control
+
+The FreeBuff provider page features the exact **Antigravity-grade Available Models interface** rather than generic OpenAI tables:
+
+1. **Card Grid Layout**:
+   - Each model is displayed as an individual card with a robot avatar, monospace model path pill (e.g. `freebuff/deepseek/deepseek-v4-flash`), friendly title, and capability badges (Vision, Reasoning, Tool Calling).
+   - Fast one-click **Copy** button on each card.
+2. **Batch Controls ("Active All" / "Disable All")**:
+   - Header buttons allow disabling or activating all catalog models in one click with confirmation.
+3. **Interactive Model Disabling & Restoration**:
+   - Hovering any model card reveals the **Disable** action (`close` icon), immediately moving it to the disabled section.
+   - Disabled models appear under the **"Disabled models (N):"** section as dashed pills (e.g. `+ mimo/mimo-v2.6-pro`). Clicking a pill instantly restores the model back to the active grid.
+4. **Instant Synchronous Enforcement**:
+   - Disabling a model removes it from 9Router's `/v1/models` endpoint immediately and causes router-level requests for that model to be rejected with HTTP 400.
+   - Restoring a model restores it to `/v1/models` and enables routing without requiring server restarts.
+5. **Short-Name Aliasing**:
+   - Built-in router mapping automatically routes both standard short names (`deepseek-v4-flash`, `glm-5.3-flash`, `solar-pro`) and upstream paths (`deepseek/deepseek-v4-flash`, `z-ai/glm-5.3-flash`, `upstage/solar-pro4`) to upstream FreeBuff destinations.
+
+---
+
+## 5. Multi-Account Management & Pool Operations
 
 ### Traffic Rotation
 - Each connected account provides an allowance of **300 freebucks per day** across free models (GLM 5.3 Flash, DeepSeek V4 Flash, Solar Pro, MiMo, etc.).
@@ -79,7 +99,7 @@ The provider includes the authentic, canonical **Codebuff / FreeBuff brand ident
 
 ---
 
-## 5. Automated Installation & Update Survivability
+## 6. Automated Installation & Update Survivability
 
 The UI enhancements are applied via `patch-9router-ui.py`:
 - **Syntax Verification**: Every modified file is strictly pre-validated with `node -c`. If any syntax mismatch occurs, changes are rolled back immediately.

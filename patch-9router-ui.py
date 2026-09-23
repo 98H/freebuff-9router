@@ -196,6 +196,8 @@ def run():
     # -----------------------------------------------------------------
     # 4. Client Provider Detail Page: Action Routing & UI Polishing
     # -----------------------------------------------------------------
+    models_json = '[{"id":"deepseek/deepseek-v4-flash","name":"DeepSeek V4 Flash","contextLength":1048576,"capabilities":["reasoning"]},{"id":"z-ai/glm-5.3-flash","name":"GLM 5.3 Flash (Vision)","contextLength":200000,"capabilities":["vision"]},{"id":"upstage/solar-pro4","name":"Solar Pro 4","contextLength":128000},{"id":"mimo/mimo-v2.5","name":"MiMo V2.5","contextLength":1048576},{"id":"mimo/mimo-v2.6-pro","name":"MiMo V2.6 Pro","contextLength":1048576,"capabilities":["reasoning"]},{"id":"openai/gpt-5.6-luna","name":"GPT 5.6 Luna","contextLength":1048576},{"id":"google/gemini-3.8-flash","name":"Gemini 3.8 Flash","contextLength":1048576,"capabilities":["vision"]},{"id":"anthropic/claude-fable-5.1","name":"Claude Fable 5.1","contextLength":200000,"capabilities":["vision","reasoning"]},{"id":"meta/muse-spark-1.2-contributor","name":"Muse Spark 1.2 Contributor","contextLength":128000}]'
+
     c_dir = os.path.join(build_dir, "static/chunks/app/(dashboard)/dashboard/providers/[id]")
     if os.path.isdir(c_dir):
         c_files = [os.path.join(c_dir, f) for f in os.listdir(c_dir) if f.startswith("page-") and f.endswith(".js")]
@@ -267,6 +269,32 @@ def run():
                 "Client: connection fallback name"
             )
 
+            # Antigravity-grade Available Models UI for FreeBuff
+            patch_file(
+                c_detail,
+                'tx=(0,p.KC)(f),th=("cursor"===f||"zed"===f)&&eU.length>0?eU:tx,',
+                f'tx=(0,p.KC)(f),th=f.includes("freebuff")?{models_json}:("cursor"===f||"zed"===f)&&eU.length>0?eU:tx,',
+                "Client: FreeBuff model catalog in th"
+            )
+            patch_file(
+                c_detail,
+                ',!tb&&(e=[...th,...eF.filter(e=>!th.some(t=>t.id===e.id))].filter(e=>{let t=(0,p.CP)(e);return!t||"llm"===t}).map(e=>e.id).filter(e=>!eW.includes(e)),(0,i.jsxs)("div",{className:"flex gap-2",children:[eW.length>0&&(0,i.jsx)(c.$n,{size:"sm",variant:"secondary",icon:"restart_alt",onClick:tP,children:"Active All"}),e.length>0&&(0,i.jsx)(c.$n,{size:"sm",variant:"secondary",icon:"block",onClick:()=>tO(e),children:"Disable All"})]}))]})',
+                ',(!tb||f.includes("freebuff"))&&(e=[...th,...eF.filter(e=>!th.some(t=>t.id===e.id))].filter(e=>{let t=(0,p.CP)(e);return!t||"llm"===t}).map(e=>e.id).filter(e=>!eW.includes(e)),(0,i.jsxs)("div",{className:"flex gap-2",children:[eW.length>0&&(0,i.jsx)(c.$n,{size:"sm",variant:"secondary",icon:"restart_alt",onClick:tP,children:"Active All"}),e.length>0&&(0,i.jsx)(c.$n,{size:"sm",variant:"secondary",icon:"block",onClick:()=>tO(e),children:"Disable All"})]}))]})',
+                "Client: FreeBuff Active All and Disable All buttons"
+            )
+            patch_file(
+                c_detail,
+                'if(tb)return(0,i.jsx)(E,{providerStorageAlias:tN,providerDisplayAlias:tS,modelAliases:ed,customModels:em,copied:ts,onCopy:ti,onSetAlias:tU,onDeleteAlias:tK,onAddCustomModel:e=>tJ(e,"llm",tN),onDeleteCustomModel:e=>tM(e,"llm",tN),connections:y,isAnthropic:ty});',
+                'if(tb&&!f.includes("freebuff"))return(0,i.jsx)(E,{providerStorageAlias:tN,providerDisplayAlias:tS,modelAliases:ed,customModels:em,copied:ts,onCopy:ti,onSetAlias:tU,onDeleteAlias:tK,onAddCustomModel:e=>tJ(e,"llm",tN),onDeleteCustomModel:e=>tM(e,"llm",tN),connections:y,isAnthropic:ty});',
+                "Client: FreeBuff skip generic OpenAI table and render Antigravity cards & disabled pills"
+            )
+            patch_file(
+                c_detail,
+                '!tb&&(0,i.jsx)(K,{isOpen:ej,providerAlias:tN,providerDisplayAlias:tS,onSave:async(e,t)=>{await tJ(e,"llm",tN,t),ew(!1)},onClose:()=>ew(!1)})',
+                '(!tb||f.includes("freebuff"))&&(0,i.jsx)(K,{isOpen:ej,providerAlias:tN,providerDisplayAlias:tS,onSave:async(e,t)=>{await tJ(e,"llm",tN,t),ew(!1)},onClose:()=>ew(!1)})',
+                "Client: FreeBuff Add Model modal"
+            )
+
     # -----------------------------------------------------------------
     # 5. Server Provider Detail Page: Action Routing & UI Polishing
     # -----------------------------------------------------------------
@@ -333,6 +361,32 @@ def run():
             "Server: connection icon"
         )
 
+        # Antigravity-grade Available Models UI for FreeBuff (Server)
+        patch_file(
+            s_detail,
+            'bm=(0,m.KC)(q),bn=("cursor"===q||"zed"===q)&&aM.length>0?aM:bm,',
+            f'bm=(0,m.KC)(q),bn=q.includes("freebuff")?{models_json}:("cursor"===q||"zed"===q)&&aM.length>0?aM:bm,',
+            "Server: FreeBuff model catalog in bn"
+        )
+        patch_file(
+            s_detail,
+            ',!br&&(a=[...bn,...aQ.filter(a=>!bn.some(b=>b.id===a.id))].filter(a=>{let b=(0,m.CP)(a);return!b||"llm"===b}).map(a=>a.id).filter(a=>!aS.includes(a)),(0,d.jsxs)("div",{className:"flex gap-2",children:[aS.length>0&&(0,d.jsx)(k.$n,{size:"sm",variant:"secondary",icon:"restart_alt",onClick:bD,children:"Active All"}),a.length>0&&(0,d.jsx)(k.$n,{size:"sm",variant:"secondary",icon:"block",onClick:()=>bC(a),children:"Disable All"})]}))]})',
+            ',(!br||q.includes("freebuff"))&&(a=[...bn,...aQ.filter(a=>!bn.some(b=>b.id===a.id))].filter(a=>{let b=(0,m.CP)(a);return!b||"llm"===b}).map(a=>a.id).filter(a=>!aS.includes(a)),(0,d.jsxs)("div",{className:"flex gap-2",children:[aS.length>0&&(0,d.jsx)(k.$n,{size:"sm",variant:"secondary",icon:"restart_alt",onClick:bD,children:"Active All"}),a.length>0&&(0,d.jsx)(k.$n,{size:"sm",variant:"secondary",icon:"block",onClick:()=>bC(a),children:"Disable All"})]}))]})',
+            "Server: FreeBuff Active All and Disable All buttons"
+        )
+        patch_file(
+            s_detail,
+            'if(br)return(0,d.jsx)(E,{providerStorageAlias:bw,providerDisplayAlias:by,modelAliases:ai,customModels:ak,copied:bb,onCopy:bc,onSetAlias:bL,onDeleteAlias:bM,onAddCustomModel:a=>bN(a,"llm",bw),onDeleteCustomModel:a=>bO(a,"llm",bw),connections:s,isAnthropic:bq});',
+            'if(br&&!q.includes("freebuff"))return(0,d.jsx)(E,{providerStorageAlias:bw,providerDisplayAlias:by,modelAliases:ai,customModels:ak,copied:bb,onCopy:bc,onSetAlias:bL,onDeleteAlias:bM,onAddCustomModel:a=>bN(a,"llm",bw),onDeleteCustomModel:a=>bO(a,"llm",bw),connections:s,isAnthropic:bq});',
+            "Server: FreeBuff skip generic OpenAI table and render Antigravity cards & disabled pills"
+        )
+        patch_file(
+            s_detail,
+            '!br&&(0,d.jsx)(M,{isOpen:au,providerAlias:bw,providerDisplayAlias:by,onSave:async(a,b)=>{await bN(a,"llm",bw,b),av(!1)},onClose:()=>av(!1)})',
+            '(!br||q.includes("freebuff"))&&(0,d.jsx)(M,{isOpen:au,providerAlias:bw,providerDisplayAlias:by,onSave:async(a,b)=>{await bN(a,"llm",bw,b),av(!1)},onClose:()=>av(!1)})',
+            "Server: FreeBuff Add Model modal"
+        )
+
     # -----------------------------------------------------------------
     # 6. Edit Connection Modal chunks
     # -----------------------------------------------------------------
@@ -364,6 +418,20 @@ def run():
             'label:t?.provider?.includes("freebuff")?"FreeBuff Auth Token":"API Key",type:"password",value:p.apiKey',
             "Client: edit modal label"
         )
+
+    # -----------------------------------------------------------------
+    # 7. Server Model Router: Short-Name Aliasing for FreeBuff
+    # -----------------------------------------------------------------
+    target_router = 'let a=(await (0,d.Fh)({type:"openai-compatible"})).find(a=>a.prefix===c.providerAlias);if(a)return{provider:a.id,model:c.model};'
+    repl_router = (
+        'let a=(await (0,d.Fh)({type:"openai-compatible"})).find(a=>a.prefix===c.providerAlias);'
+        'if(a){let m=c.model;if(c.providerAlias==="freebuff"||a.id.includes("freebuff")){'
+        'let fbMap={"deepseek-v4-flash":"deepseek/deepseek-v4-flash","glm-5.3-flash":"z-ai/glm-5.3-flash","solar-pro":"upstage/solar-pro4","solar-pro4":"upstage/solar-pro4","mimo-v2.6-pro":"mimo/mimo-v2.6-pro","mimo-v2.5":"mimo/mimo-v2.5","gpt-5.6-luna":"openai/gpt-5.6-luna","gemini-3.8-flash":"google/gemini-3.8-flash","claude-fable-5.1":"anthropic/claude-fable-5.1","muse-spark-1.2-contributor":"meta/muse-spark-1.2-contributor"};'
+        'm=fbMap[m]||m}return{provider:a.id,model:m};}'
+    )
+    for c_chunk in [os.path.join(build_dir, "server/chunks/8635.js"), os.path.join(build_dir, "server/chunks/9128.js")]:
+        if os.path.exists(c_chunk):
+            patch_file(c_chunk, target_router, repl_router, f"Server router: FreeBuff model alias mapping ({os.path.basename(c_chunk)})")
 
     print("\n[✓] FreeBuff automated login & UI/UX patching completed successfully.")
     return True
