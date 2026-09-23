@@ -115,6 +115,12 @@ c "==> 4/5 registering provider in 9Router (prefix: ${FREEBUFF_PREFIX})"
 cp "$NINE_ROUTER_DB" "$NINE_ROUTER_DB.freebuff-pre-$(date +%Y%m%d-%H%M%S)"
 chmod 600 "$NINE_ROUTER_DB".freebuff-pre-* 2>/dev/null || true
 python3 "$REPO_DIR/freebuff9r.py" --prefix "$FREEBUFF_PREFIX" --proxy-url "http://${FREEBUFF_LISTEN%:*}:${FREEBUFF_LISTEN#*:}" register
+
+c "==> 4.1/5 applying high-grade UI/UX patch to 9Router"
+if [ -f "$REPO_DIR/patch-9router-ui.py" ]; then
+    python3 "$REPO_DIR/patch-9router-ui.py" || warn "    UI patch encountered non-critical issue"
+fi
+
 if command -v systemctl &>/dev/null && systemctl is-active --quiet 9router; then
     systemctl restart 9router
     ok "    9Router restarted"

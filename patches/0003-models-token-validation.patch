@@ -1,0 +1,42 @@
+diff --git a/backend/internal/pool/bridge.go b/backend/internal/pool/bridge.go
+index de6c834..e278607 100644
+--- a/backend/internal/pool/bridge.go
++++ b/backend/internal/pool/bridge.go
+@@ -495,3 +495,11 @@ func (p *Pool) ProbeToken(ctx context.Context, token int) (*upstream.SessionStat
+ 	}
+ 	return st, nil
+ }
++
++// ValidateBridgeToken probes and caches a client token in bridge mode.
++// Used for validation probes (e.g. 9Router Test Connection) at zero freebucks cost.
++func (p *Pool) ValidateBridgeToken(clientToken string) error {
++	_, err := p.bridgeEntryFor(clientToken)
++	return err
++}
++
+diff --git a/backend/internal/server/models.go b/backend/internal/server/models.go
+index cdf0dc1..f3f1955 100644
+--- a/backend/internal/server/models.go
++++ b/backend/internal/server/models.go
+@@ -275,6 +275,21 @@ func modelTierReason(id string, snaps []pool.TokenSnapshot) string {
+ // {"models": […]} envelope — see codexClientVersion/codexModelRow and
+ // WIRE-NOTES.md §8.
+ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
++	// In bridge mode, if an explicit Bearer token is provided (e.g. from 9Router's /api/providers/validate),
++	// validate the token via bridge cache / upstream probe so the test connection check works accurately.
++	if auth := r.Header.Get("Authorization"); auth != "" {
++		if tok, ok := extractBearerToken(auth); ok && tok != "" && tok != "freebuff-bridge-pending" {
++			cfg := s.cfg.Load()
++			if cfg.BridgeMode() || cfg.HybridBridgeMode() {
++				if err := s.pool.ValidateBridgeToken(tok); err != nil {
++					s.writeJSONError(w, http.StatusUnauthorized,
++						"Invalid API key: "+err.Error(), "invalid_request_error", "invalid_api_key", 0)
++					return
++				}
++			}
++		}
++	}
++
+ 	created := s.started.Unix()
+ 	snaps := s.pool.Snapshot()
+ 	models := s.reg.Models()

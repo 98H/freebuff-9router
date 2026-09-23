@@ -156,19 +156,43 @@ same code as a valid state returned *alongside* `ErrNoActiveSession`). The
 practical effect: every fresh FreeBuff account that has never held a session
 fails every chat with `502 upstream_unavailable`. The patch makes the bridge
 cache accept the idle state and let the session manager admit on demand —
-which is exactly what the upstream's own pooled paths already do. If a future
-upstream tag fixes this, `install.sh` will tell you to delete the patch.
+which is exactly what the upstream's own pooled paths already do.
+
+### `0002-probe-bypass-and-refund-settle.patch`
+
+Detects zero-token healthcheck and dashboard test requests (such as the flask
+icon tests in 9Router) and responds locally at zero Freebucks cost. Prevents
+upstream quota burning on test probes while preserving accurate model telemetry
+and delaying refund settlement until full turn completion.
+
+### `0003-models-token-validation.patch`
+
+Hooks into `GET /v1/models` in bridge mode to validate client-supplied Bearer tokens
+against the upstream session endpoint. This allows 9Router's "Test Connection"
+button in the GUI to accurately verify FreeBuff tokens before saving, with zero
+Freebucks consumption.
+
+## High-Grade 9Router GUI / Web Interface Integration
+
+The included `patch-9router-ui.py` script automatically enhances the 9Router Web UI:
+- **Direct GUI Account Addition**: Adds a first-class "Add FreeBuff Account" dialog with token guidance, auto-naming, and live "Test Connection" validation.
+- **Dedicated Logo & Branding**: Official FreeBuff badge, logo, and icon in both the providers catalog and connection cards.
+- **Idempotent & Safe**: Automatically verifies syntax via `node -c` with instant rollback on any issue, and integrates seamlessly into the post-update hook.
 
 ## Files
 
 ```
 freebuff9r.py                  all-in-one manager (register/add-token/login-url/wait-login/sync-models/status/verify/remove)
-install.sh                     end-to-end installer (build + systemd + registration + login)
+install.sh                     end-to-end installer (build + systemd + registration + UI patch + login)
+patch-9router-ui.py            high-grade 9Router GUI/UX patcher (first-class Web UI support)
 scripts/verify.sh              CI-style smoke test of the whole chain
 systemd/freebucks-proxy.service  service unit (hardened, loopback-only)
 .env.example                   proxy environment template
 docs/ARCHITECTURE.md           how the pieces talk (wire-level)
 docs/SECURITY.md               threat model + hardening checklist
+patches/0001-bridge-accept-idle-tokens.patch
+patches/0002-probe-bypass-and-refund-settle.patch
+patches/0003-models-token-validation.patch
 ```
 
 ## Credits & license
