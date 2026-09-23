@@ -1,0 +1,27 @@
+diff --git a/backend/internal/pool/bridge_cache.go b/backend/internal/pool/bridge_cache.go
+index 92295ae..a6e6795 100644
+--- a/backend/internal/pool/bridge_cache.go
++++ b/backend/internal/pool/bridge_cache.go
+@@ -7,6 +7,7 @@ package pool
+ import (
+ 	"context"
+ 	"crypto/sha256"
++	"errors"
+ 	"encoding/hex"
+ 	"fmt"
+ 	"freebucks-proxy/backend/internal/config"
+@@ -123,7 +124,13 @@ func (p *Pool) bridgeEntryFor(clientToken string) (*bridgeEntry, error) {
+ 	probeCtx, probeCancel := context.WithTimeout(context.Background(), probeCfg.SessionCallTimeout)
+ 	_, probeErr := client.ProbeAccount(probeCtx)
+ 	probeCancel()
+-	if probeErr != nil {
++	// freebuff-9router patch: a healthy idle token probes as
++	// status "none"/"ended" and ProbeAccount returns the decoded state
++	// ALONGSIDE ErrNoActiveSession (documented healthy-idle state, not a
++	// failure). Stock v1.18.2 treats any probe error as fatal here, which
++	// makes bridge mode unusable for tokens that have never held a session.
++	// Accept the idle state and let the session manager admit on demand.
++	if probeErr != nil && !errors.Is(probeErr, upstream.ErrNoActiveSession) {
+ 		return nil, fmt.Errorf("bridge: token validation failed: %w", probeErr)
+ 	}
+ 

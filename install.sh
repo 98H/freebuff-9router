@@ -58,6 +58,19 @@ else
   git clone --depth 1 --branch "$FREEBUFF_UPSTREAM_TAG" \
     "https://github.com/$FREEBUFF_UPSTREAM_REPO.git" "$BUILD_DIR" >/dev/null 2>&1 \
     || { err "clone failed — check the tag ($FREEBUFF_UPSTREAM_TAG) and network"; exit 1; }
+  # apply our patches (idempotent; each is documented in patches/)
+  for PATCH in "$REPO_DIR"/patches/*.patch; do
+    [ -e "$PATCH" ] || continue
+    if git -C "$BUILD_DIR" apply --check "$PATCH" 2>/dev/null; then
+      git -C "$BUILD_DIR" apply "$PATCH"
+      ok "    applied $(basename "$PATCH")"
+    elif git -C "$BUILD_DIR" apply --reverse --check "$PATCH" 2>/dev/null; then
+      ok "    $(basename "$PATCH") already applied"
+    else
+      err "    $(basename "$PATCH") does not apply to $FREEBUFF_UPSTREAM_TAG — the upstream may have fixed it; try removing the patch file or picking a newer tag"
+      exit 1
+    fi
+  done
   npm --prefix "$BUILD_DIR/frontend" ci --no-audit --no-fund >/dev/null
   npm --prefix "$BUILD_DIR/frontend" run build >/dev/null
   (cd "$BUILD_DIR" && go build -o "$PROXY_BIN" ./backend/cmd/freebucks-proxy)

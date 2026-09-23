@@ -136,6 +136,25 @@ timestamped DB backup first.
 | `503 session_superseded` | another client used the same account's seat; wait or use a second account |
 | 429 storms | add more accounts (each = one connection) or lower traffic; FreeBuff resets daily |
 | after 9Router update models vanish | re-run `python3 freebuff9r.py status`; if the DB schema changed, re-run `register` |
+| chat fails with `bridge: token validation failed: upstream has no active session` | you built the proxy **without** our patch — use `install.sh` (applies `patches/0001-*.patch`, see below) |
+
+## Patches (upstream fixes this repo carries)
+
+Our patches live in [`patches/`](patches/) and are applied by `install.sh`
+right after clone — idempotent: skipped when already applied, and a loud
+hard-fail when a patch no longer applies (so an upstream fix or API change is
+never silently missed).
+
+### `0001-bridge-accept-idle-tokens.patch`
+
+Upstream v1.18.2's bridge entry creation rejects any token whose zero-cost
+probe returns the **healthy idle** state (`status: "none"`, documented by the
+same code as a valid state returned *alongside* `ErrNoActiveSession`). The
+practical effect: every fresh FreeBuff account that has never held a session
+fails every chat with `502 upstream_unavailable`. The patch makes the bridge
+cache accept the idle state and let the session manager admit on demand —
+which is exactly what the upstream's own pooled paths already do. If a future
+upstream tag fixes this, `install.sh` will tell you to delete the patch.
 
 ## Files
 
