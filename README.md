@@ -177,22 +177,25 @@ The models a `/model` picker (Hermes, OpenCode, …) lists for `freebuff/*` are 
 exact, live function of the toggle switches in the 9Router dashboard
 (Providers → FreeBuff):
 
-- **Source of truth:** the proxy's live `/v1/models` catalog **minus** the
-  UI's disabled set (SQLite `kv` scope `disabledModels`, key
-  `openai-compatible-chat-freebuff`). 9Router re-reads both per request —
-  toggles apply instantly, no restart, and a disabled model is actively
-  refused (HTTP 400) if a stale client still asks for it.
-- **`scripts/sync-models.py`** — audit + auto-repair of the two things that
-  can break the 1:1 mapping: stale `customModels` rows (legacy injections that
-  bypass toggles and re-add models you never enabled) and stray
-  `disabledModels` rows under the prefix key (which would silently override a
-  UI re-enable). It also invalidates Hermes's on-disk picker cache
-  (`~/.hermes/provider_models_cache.json`, 1h TTL) so the picker reflects a
-  toggle on the next open instead of an hour later. `--check` = read-only.
+- **How it works:** the dashboard's per-model toggle list is rendered from
+  `kv` scope `customModels` rows (one `<alias>|<model-id>|llm` row per model);
+  the toggle state lives in scope `disabledModels`. 9Router's `/v1/models`
+  serves the union of the proxy's live catalog and those rows, **minus** the
+  disabled set — the disabled filter applies to customModels rows too, so a
+  model you switch off vanishes from every picker instantly (no restart), and
+  the router actively refuses it (HTTP 400) if a stale client still asks.
+- **`scripts/sync-models.py`** — audit + auto-repair, idempotent: re-mirrors
+  the customModels toggle list from the live proxy catalog (so upstream model
+  adds/retires appear as new toggles), removes stray `disabledModels` rows
+  under the prefix key (which would silently override a UI re-enable), and
+  invalidates Hermes's on-disk picker cache
+  (`~/.hermes/provider_models_cache.json`, 1h TTL) so a toggle shows up on the
+  next picker open instead of an hour later. `--check` = read-only.
 - **`scripts/sync-models-watch.py`** + `systemd/freebuff-model-sync.service` —
-  watches the 9Router DB and reconciles automatically ~1s after every UI
-  click. Enable once and every dashboard add/remove lands in `/model` by
-  itself:
+  polls the toggle-relevant DB state (loop-safe: ignores 9Router's own
+  constant write traffic and its own idempotent writes) and reconciles
+  automatically ~1s after every UI click. Enable once and every dashboard
+  add/remove lands in `/model` by itself:
 
 ```bash
 sudo install -m644 systemd/freebuff-model-sync.service /etc/systemd/system/

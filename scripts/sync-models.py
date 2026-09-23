@@ -1,47 +1,42 @@
 #!/usr/bin/env python3
 """
-sync-models.py — keep 9Router's /v1/models surface for FreeBuff in exact
-1:1 sync with the model toggles in the 9Router Web UI.
+sync-models.py — keep the FreeBuff model surface in exact 1:1 sync with the
+9Router Web UI toggles, in BOTH directions:
 
-How the pipeline works (verified against 9Router 0.5.86 source):
+  ┌─ Dashboard provider page (per-model toggle switches)
+  │     toggle LIST  = kv scope='customModels' rows (`<alias>|<model-id>|llm`)
+  │     toggle STATE = kv scope='disabledModels' (key = node id)
+  └─ /v1/models (what /model pickers serve)
+        = proxy live catalog ∪ customModels rows, MINUS disabledModels
+          (the disabled filter applies to the merged set — customModels rows
+           do NOT bypass it; verified against 9Router 0.5.86 buildModelsList)
 
-  UI toggle (dashboard/providers/<id> page)
-      │  POST /api/models/disabled   {providerAlias, ids:[…]}   (disable)
-      │  DELETE /api/models/disabled {providerAlias, id}        (enable)
-      ▼
-  kv table, scope='disabledModels', key=<providerAlias>, value=JSON array
-      │
-      ▼  (read fresh on EVERY request — no caching)
-  buildModelsList() in /api/../v1/models
-      │  m(alias, modelId) filter drops disabled rows
-      ▼
-  GET /v1/models  ← what /model pickers (Hermes, OpenCode, …) consume
+This script reconciles the drift sources that break the 1:1 mapping:
 
-Two things break that 1:1 mapping, and this script fixes both:
+  1. CATALOG DRIFT — upstream adds/retires a model. The customModels rows
+     (the UI's toggle list) are re-mirrored from the proxy's live
+     /v1/models so every current model appears as a toggle and retired
+     ones disappear. This script is the ONLY writer of customModels rows.
 
-  1. STALE customModels ROWS. Rows in kv scope='customModels' whose
-     providerAlias matches the FreeBuff node id ("openai-compatible-chat-freebuff")
-     or its prefix ("freebuff") are force-injected into buildModelsList
-     output WITHOUT passing through the disabledModels filter. They were
-     written by older tooling before the proxy exposed a live /v1/models
-     catalog. They must not exist — the proxy is the single source of
-     truth for the catalog, and disabledModels is the single source of
-     truth for user selection.
+  2. STRAY PREFIX-KEY disabledModels ROWS — the UI writes disabled state
+     under the node id key only, while buildModelsList also checks the bare
+     prefix key. A row there would silently override a UI re-enable, so it
+     is migrated into the canonical node-id key and removed.
 
-  2. STRAY PREFIX-KEY ROWS. The UI writes disabledModels under the provider
-     NODE ID for openai-compatible providers ("openai-compatible-chat-freebuff"),
-     while buildModelsList checks disabled under BOTH the node id AND the
-     prefix ("freebuff"). A row under the prefix key silently overrides UI
-     re-enables (the UI's DELETE only touches the node-id key). This script
-     migrates any stray prefix-key entries into the canonical node-id key
-     and removes the prefix row.
+  3. HERMES PICKER CACHE — Hermes caches each provider's /v1/models on
+     disk for up to 1h (~/.hermes/provider_models_cache.json). A UI toggle
+     must show up immediately: any cache row whose freebuff/* subset
+     disagrees with the current router surface is dropped so the next
+     picker open re-fetches live.
+
+It never touches the canonical disabledModels state (the user's selection
+belongs to the dashboard alone) beyond the stray-prefix-key migration.
 
 Usage:
-  python3 scripts/sync-models.py            # audit + repair (idempotent)
-  python3 scripts/sync-models.py --check    # read-only; exit 1 if drift
+  python3 scripts/sync-models.py            # reconcile (idempotent)
+  python3 scripts/sync-models.py --check    # read-only audit, exit 1 on drift
 
-Zero cost: no upstream calls, no chat probes. Only local SQLite + the
-local proxy catalog endpoint.
+Zero cost: local SQLite + local HTTP only; no upstream calls, no chat probes.
 """
 import argparse
 import json
@@ -52,31 +47,25 @@ import urllib.request
 
 DB = os.environ.get("NINE_ROUTER_DB", os.path.expanduser("~/.9router/db/data.sqlite"))
 PROXY = os.environ.get("FREEBUFF_PROXY_URL", "http://127.0.0.1:3457")
+ROUTER = os.environ.get("NINE_ROUTER_URL", "http://127.0.0.1:20128")
 NODE_ID = "openai-compatible-chat-freebuff"
 PREFIX = "freebuff"
-
-
-def get_db():
-    return sqlite3.connect(DB)
+ALIASES = [PREFIX, NODE_ID]
 
 
 def proxy_catalog():
-    """Live catalog from freebuff-proxy (local, free)."""
     req = urllib.request.Request(f"{PROXY}/v1/models")
     with urllib.request.urlopen(req, timeout=5) as r:
         data = json.loads(r.read().decode())
-    return sorted(m["id"] for m in data.get("data", []))
+    return sorted(m["id"] for m in data.get("data", []) if m.get("id"))
 
 
 def router_catalog(db):
-    """What 9Router currently serves for freebuff/* (via local HTTP)."""
     key = db.execute("SELECT key FROM apiKeys WHERE isActive=1 LIMIT 1").fetchone()
     if not key:
         return None
     req = urllib.request.Request(
-        "http://127.0.0.1:20128/v1/models",
-        headers={"Authorization": f"Bearer {key[0]}"},
-    )
+        f"{ROUTER}/v1/models", headers={"Authorization": f"Bearer {key[0]}"})
     with urllib.request.urlopen(req, timeout=8) as r:
         data = json.loads(r.read().decode())
     return sorted(
@@ -88,127 +77,146 @@ def router_catalog(db):
 
 def get_disabled(db, key):
     row = db.execute(
-        "SELECT value FROM kv WHERE scope='disabledModels' AND key=?", (key,)
-    ).fetchone()
+        "SELECT value FROM kv WHERE scope='disabledModels' AND key=?",
+        (key,)).fetchone()
     return set(json.loads(row[0])) if row else set()
 
 
-def set_disabled(db, key, ids):
-    if ids:
-        db.execute(
-            "INSERT INTO kv(scope,key,value) VALUES('disabledModels',?,?) "
-            "ON CONFLICT(scope,key) DO UPDATE SET value=excluded.value",
-            (key, json.dumps(sorted(ids))),
-        )
-    else:
-        db.execute(
-            "DELETE FROM kv WHERE scope='disabledModels' AND key=?", (key,)
-        )
+def mirror_custom_models(db, catalog):
+    """Make the UI toggle list == live proxy catalog (under both alias keys)."""
+    problems = []
+    desired_keys = set()
+    for alias in ALIASES:
+        for mid in catalog:
+            key = f"{alias}|{mid}|llm"
+            desired_keys.add(key)
+            val = json.dumps({"providerAlias": alias, "id": mid,
+                              "type": "llm", "name": mid})
+            cur = db.execute(
+                "SELECT value FROM kv WHERE scope='customModels' AND key=?",
+                (key,)).fetchone()
+            if cur is None or cur[0] != val:
+                problems.append(f"customModels upsert: {key}")
+                db.execute(
+                    "INSERT INTO kv(scope,key,value) VALUES('customModels',?,?) "
+                    "ON CONFLICT(scope,key) DO UPDATE SET value=excluded.value",
+                    (key, val))
+    for alias in ALIASES:
+        for (key,) in db.execute(
+                "SELECT key FROM kv WHERE scope='customModels' AND key LIKE ?",
+                (f"{alias}|%",)).fetchall():
+            if key not in desired_keys:
+                problems.append(f"customModels retire: {key}")
+                db.execute(
+                    "DELETE FROM kv WHERE scope='customModels' AND key=?",
+                    (key,))
+    return problems
+
+
+def reconcile_hermes_cache(served_now):
+    problems = []
+    cache_path = os.path.expanduser("~/.hermes/provider_models_cache.json")
+    if not os.path.exists(cache_path) or served_now is None:
+        return problems
+    try:
+        with open(cache_path) as f:
+            cache = json.load(f)
+        dirty = False
+        for ckey, entry in list(cache.items()):
+            models = entry.get("models") if isinstance(entry, dict) else None
+            if not models:
+                continue
+            fb = sorted(m[len(PREFIX) + 1:] for m in models
+                        if isinstance(m, str) and m.startswith(f"{PREFIX}/"))
+            if fb and fb != served_now:
+                del cache[ckey]
+                dirty = True
+                problems.append(f"invalidated stale Hermes picker cache: {ckey}")
+        if dirty:
+            with open(cache_path, "w") as f:
+                json.dump(cache, f)
+    except Exception as e:
+        print(f"[warn] could not reconcile Hermes cache: {e}")
+    return problems
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="read-only audit")
     args = ap.parse_args()
-    db = get_db()
+    db = sqlite3.connect(DB)
     problems = []
 
-    # 1. Purge stale customModels for our aliases — they bypass the UI toggles.
-    stale = db.execute(
-        "SELECT key FROM kv WHERE scope='customModels' AND "
-        "(key LIKE ? OR key LIKE ?)",
-        (f"{PREFIX}|%", f"{NODE_ID}|%"),
-    ).fetchall()
-    if stale:
-        problems.append(f"stale customModels rows: {len(stale)}")
-        if not args.check:
-            db.execute(
-                "DELETE FROM kv WHERE scope='customModels' AND "
-                "(key LIKE ? OR key LIKE ?)",
-                (f"{PREFIX}|%", f"{NODE_ID}|%"),
-            )
+    try:
+        catalog = proxy_catalog()
+    except Exception as e:
+        print(f"[warn] proxy catalog unreachable: {e}")
+        catalog = None
 
-    # 2. Alias hygiene: the UI writes disabledModels ONLY under the node id
-    #    ("openai-compatible-chat-freebuff"); buildModelsList checks BOTH the
-    #    node id and the prefix ("freebuff"). A stale row under the prefix key
-    #    would silently override a UI re-enable — it must NOT exist.
+    # 1. UI toggle list mirrors the live catalog.
+    if catalog is not None:
+        if args.check:
+            desired = {f"{a}|{m}|llm" for a in ALIASES for m in catalog}
+            existing = {r[0] for r in db.execute(
+                "SELECT key FROM kv WHERE scope='customModels' AND (key LIKE ? OR key LIKE ?)",
+                (f"{PREFIX}|%", f"{NODE_ID}|%")).fetchall()}
+            if existing != desired:
+                problems.append(
+                    f"customModels drift: +{len(desired - existing)} missing, "
+                    f"-{len(existing - desired)} stale")
+        else:
+            problems.extend(mirror_custom_models(db, catalog))
+
+    # 2. Stray prefix-key disabledModels rows must not exist (they would
+    #    override UI re-enables); migrate into the canonical node-id key.
     d_prefix = get_disabled(db, PREFIX)
     if d_prefix:
-        problems.append(f"stray disabledModels row under prefix key: {sorted(d_prefix)}")
+        problems.append(
+            f"stray disabledModels row under prefix key: {sorted(d_prefix)}")
         if not args.check:
-            # Migrate anything found there into the canonical node-id key, then drop it.
             d_node = get_disabled(db, NODE_ID)
-            set_disabled(db, NODE_ID, d_node | d_prefix)
-            db.commit()
-            set_disabled(db, PREFIX, set())
+            merged = sorted(d_node | d_prefix)
+            db.execute(
+                "INSERT INTO kv(scope,key,value) VALUES('disabledModels',?,?) "
+                "ON CONFLICT(scope,key) DO UPDATE SET value=excluded.value",
+                (NODE_ID, json.dumps(merged)))
+            db.execute(
+                "DELETE FROM kv WHERE scope='disabledModels' AND key=?",
+                (PREFIX,))
 
     if not args.check:
         db.commit()
 
-    # 2b. Hermes-side propagation: the Hermes /model picker caches each
-    #     provider's /v1/models response on disk for up to 1h
-    #     ($HERMES_HOME/provider_models_cache.json). A UI toggle must show up
-    #     immediately, not an hour later — drop any cache row whose stored
-    #     catalog disagrees with the now-current router surface, so the next
-    #     picker open re-fetches live.
-    cache_path = os.path.expanduser("~/.hermes/provider_models_cache.json")
-    if os.path.exists(cache_path):
-        try:
-            with open(cache_path) as f:
-                cache = json.load(f)
-            dirty = False
-            served_now = router_catalog(db)
-            if served_now is not None:
-                for ckey, entry in list(cache.items()):
-                    models = entry.get("models") if isinstance(entry, dict) else None
-                    if not models:
-                        continue
-                    fb = sorted(
-                        m[len(PREFIX) + 1:] for m in models
-                        if isinstance(m, str) and m.startswith(f"{PREFIX}/")
-                    )
-                    if fb and fb != served_now:
-                        del cache[ckey]
-                        dirty = True
-                        problems.append(f"invalidated stale Hermes model cache: {ckey}")
-            if dirty and not args.check:
-                with open(cache_path, "w") as f:
-                    json.dump(cache, f)
-        except Exception as e:
-            print(f"[warn] could not reconcile Hermes cache: {e}")
-
-    # 3. Verify the effective /v1/models surface equals catalog minus disabled.
+    # 3. Effective surface check: served == catalog − UI-disabled.
     disabled = get_disabled(db, NODE_ID) | get_disabled(db, PREFIX)
-    try:
-        cat = proxy_catalog()
-    except Exception as e:
-        print(f"[warn] proxy catalog unreachable: {e}")
-        cat = None
-    try:
-        served = router_catalog(db)
-    except Exception as e:
-        print(f"[warn] router /v1/models unreachable: {e}")
-        served = None
+    served = None
+    if catalog is not None:
+        try:
+            served = router_catalog(db)
+        except Exception as e:
+            print(f"[warn] router /v1/models unreachable: {e}")
+        if served is not None:
+            expected = sorted(m for m in catalog if m not in disabled)
+            if served != expected:
+                problems.append(
+                    "served != catalog-disabled:\n"
+                    f"  unexpected: {sorted(set(served) - set(expected))}\n"
+                    f"  missing:    {sorted(set(expected) - set(served))}")
 
-    if cat is not None and served is not None:
-        expected = sorted(m for m in cat if m not in disabled)
-        if served != expected:
-            problems.append(
-                "served != catalog-disabled:\n"
-                f"  unexpected: {sorted(set(served) - set(expected))}\n"
-                f"  missing:    {sorted(set(expected) - set(served))}"
-            )
+    # 4. Hermes picker cache must not pin a stale list.
+    if not args.check:
+        problems.extend(reconcile_hermes_cache(served))
 
     db.close()
     if problems:
-        print("DRIFT DETECTED:" if args.check else "REPAIRED:")
+        print("DRIFT:" if args.check else "REPAIRED:")
         for p in problems:
             print(" -", p)
         if args.check:
             sys.exit(1)
-    print("[ok] FreeBuff model surface is in 1:1 sync with the 9Router UI toggles.")
-    if cat is not None and served is not None:
-        print(f"     catalog={len(cat)} disabled={len(disabled)} served={len(served)}")
+    print("[ok] FreeBuff UI toggles ⇆ /model surface in 1:1 sync.")
+    if catalog is not None and served is not None:
+        print(f"     catalog={len(catalog)} ui-disabled={len(disabled)} served={len(served)}")
 
 
 if __name__ == "__main__":
