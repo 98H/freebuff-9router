@@ -1,0 +1,17 @@
+[Unit]
+Description=FreeBuff <-> 9Router UI model toggle sync watchdog
+After=9router.service freebuff-proxy.service
+Wants=9router.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /root/projects/freebuff-9router/scripts/sync-models-watch.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/root/.9router /root/.hermes
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -19,11 +19,11 @@ codebuff.com  (FreeBuff upstream)
 
 ## What you get
 
-- `freebuff/<model-id>` entries on `GET /v1/models` of 9Router — imported into
-  9Router's `customModels` registry (the same mechanism the ChatGPT/Qwen/Meta
-  web bridges use), so the dashboard provider page offers per-model toggles
-  like any built-in provider. Re-sync after upstream model changes with
-  `python3 freebuff9r.py sync-models`.
+- `freebuff/<model-id>` entries on `GET /v1/models` of 9Router — live-fetched
+  from the proxy's catalog on every request, filtered by the per-model toggles
+  in the dashboard (Providers → FreeBuff). The toggles are the single source
+  of truth: what you enable there is exactly what `/model` pickers serve;
+  disable one and it vanishes within a second (see **Model list sync** below).
 - One 9Router **connection per FreeBuff account**; 9Router's native multi-connection
   rotation spreads traffic across your accounts (same pattern as multiple Cline accounts).
 - **Bridge mode** end to end: the FreeBuff token lives *only* in 9Router's SQLite and is
@@ -167,9 +167,37 @@ Hooks into `GET /v1/models` in bridge mode to validate client-supplied Bearer to
 The included `patch-9router-ui.py` script automatically enhances the 9Router Web UI with an **Antigravity-grade automated onboarding experience**:
 - **One-Click Automated Login (Like Antigravity / GitHub Device Flow)**: Clicking "Add Connection" immediately opens a dedicated modal with the verification URL and code, and **simultaneously opens Codebuff's GitHub login in a new browser tab**.
 - **Real-Time Automated Token & Account Enrollment**: Background polling checks the upstream login status every 3 seconds. The moment you authenticate in your browser, your auth token and email are retrieved, automatically stored/updated in 9Router's database, and the modal shows "Connected Successfully!" before refreshing your connection list.
-- **Official High-Resolution Vector Branding**: Authentic Codebuff / FreeBuff logo (sparkle + cursor mark) rendered at 512x512 with transparent outer corners, displayed natively across the providers catalog and connection cards.
+- **Official High-Resolution Vector Branding**: the authentic FreeBuff mark — the white geometric glyph of two interlocking L-strokes forming the "F" on a black squircle, reconstructed pixel-exact from the official freebuff.com site SVG and apple-touch-icon — rendered at 512/256/128/32px with transparent outer corners, displayed natively across the providers catalog and connection cards.
 - **Idempotent & Safe**: Automatically verifies syntax via `node -c` with instant rollback on any issue, and integrates seamlessly into the post-update hook.
 - Detailed step-by-step visual documentation is available in [docs/WEB_UI_GUIDE.md](docs/WEB_UI_GUIDE.md).
+
+## Model list sync (dashboard toggles ⇆ /model pickers)
+
+The models a `/model` picker (Hermes, OpenCode, …) lists for `freebuff/*` are an
+exact, live function of the toggle switches in the 9Router dashboard
+(Providers → FreeBuff):
+
+- **Source of truth:** the proxy's live `/v1/models` catalog **minus** the
+  UI's disabled set (SQLite `kv` scope `disabledModels`, key
+  `openai-compatible-chat-freebuff`). 9Router re-reads both per request —
+  toggles apply instantly, no restart, and a disabled model is actively
+  refused (HTTP 400) if a stale client still asks for it.
+- **`scripts/sync-models.py`** — audit + auto-repair of the two things that
+  can break the 1:1 mapping: stale `customModels` rows (legacy injections that
+  bypass toggles and re-add models you never enabled) and stray
+  `disabledModels` rows under the prefix key (which would silently override a
+  UI re-enable). It also invalidates Hermes's on-disk picker cache
+  (`~/.hermes/provider_models_cache.json`, 1h TTL) so the picker reflects a
+  toggle on the next open instead of an hour later. `--check` = read-only.
+- **`scripts/sync-models-watch.py`** + `systemd/freebuff-model-sync.service` —
+  watches the 9Router DB and reconciles automatically ~1s after every UI
+  click. Enable once and every dashboard add/remove lands in `/model` by
+  itself:
+
+```bash
+sudo install -m644 systemd/freebuff-model-sync.service /etc/systemd/system/
+sudo systemctl enable --now freebuff-model-sync
+```
 
 ## Files
 
@@ -178,7 +206,10 @@ freebuff9r.py                  all-in-one manager (register/add-token/login-url/
 install.sh                     end-to-end installer (build + systemd + registration + UI patch + login)
 patch-9router-ui.py            high-grade 9Router GUI/UX patcher (first-class Web UI support)
 scripts/verify.sh              CI-style smoke test of the whole chain
+scripts/sync-models.py         audit + repair UI-toggle ⇆ /model sync (alias hygiene, cache invalidation)
+scripts/sync-models-watch.py   watchdog: auto-reconcile ~1s after every dashboard toggle
 systemd/freebuff-proxy.service service unit (hardened, loopback-only)
+systemd/freebuff-model-sync.service  model-sync watchdog unit
 .env.example                   proxy environment template
 assets/freebuff.svg            official vector brand asset (Codebuff / FreeBuff mark)
 assets/freebuff.png            official 512x512 high-resolution icon

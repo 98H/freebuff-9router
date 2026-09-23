@@ -127,6 +127,13 @@ if command -v systemctl &>/dev/null && systemctl is-active --quiet 9router; then
     ok "    9Router restarted"
 fi
 
+c "==> 4.2/5 installing model-sync watchdog (dashboard toggles -> /model pickers)"
+install -m 0644 "$REPO_DIR/systemd/freebuff-model-sync.service" /etc/systemd/system/freebuff-model-sync.service
+systemctl daemon-reload
+systemctl enable --now freebuff-model-sync >/dev/null 2>&1 || systemctl restart freebuff-model-sync
+systemctl is-active --quiet freebuff-model-sync && ok "    freebuff-model-sync active" || warn "    model-sync watchdog failed — journalctl -u freebuff-model-sync -n 30"
+python3 "$REPO_DIR/scripts/sync-models.py" || warn "    initial model reconcile reported drift (see output above)"
+
 c "==> 5/5 FreeBuff account login"
 python3 "$REPO_DIR/freebuff9r.py" --prefix "$FREEBUFF_PREFIX" login-url > /tmp/freebuff-login-flow.json
 python3 - <<'PY'
