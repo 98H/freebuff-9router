@@ -117,7 +117,7 @@ chmod 600 "$NINE_ROUTER_DB".freebuff-pre-* 2>/dev/null || true
 python3 "$REPO_DIR/freebuff9r.py" --prefix "$FREEBUFF_PREFIX" --proxy-url "http://${FREEBUFF_LISTEN%:*}:${FREEBUFF_LISTEN#*:}" register
 if command -v systemctl &>/dev/null && systemctl is-active --quiet 9router; then
     systemctl restart 9router
-    ok "    9Router restarted (Antigravity-style UI applied)"
+    ok "    9Router restarted"
 fi
 
 c "==> 5/5 FreeBuff account login"

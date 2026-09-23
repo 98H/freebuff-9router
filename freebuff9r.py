@@ -191,15 +191,6 @@ def cmd_register(args):
     con.commit()
     con.close()
 
-    # Apply Antigravity-grade UI enhancements to 9Router bundles
-    patch_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "patch-9router-ui.py")
-    if os.path.exists(patch_script):
-        try:
-            import subprocess
-            subprocess.run([sys.executable, patch_script], check=False)
-        except Exception as e:
-            print(f"[!] UI patch notice: {e}")
-
     print(f"[✓] provider '{args.prefix}' ready — baseUrl={base_url}")
     print(f"    models appear as {args.prefix}/<upstream-model-id> on 9Router /v1/models")
     if created:
@@ -491,21 +482,27 @@ def sync_models(con, prefix: str, proxy_url: str, include_unavailable: bool = Fa
     now = now_iso()
     added, removed = [], []
     for m in keep:
-        key = f"{prefix}|{m['id']}|llm"
-        val = json.dumps({"providerAlias": prefix, "id": m["id"], "type": "llm", "name": m["id"]})
-        cur = con.execute("SELECT value FROM kv WHERE scope='customModels' AND key=?", (key,)).fetchone()
-        if cur is None or cur["value"] != val:
-            con.execute(
-                "INSERT INTO kv(scope, key, value) VALUES('customModels', ?, ?) "
-                "ON CONFLICT(scope, key) DO UPDATE SET value=excluded.value",
-                (key, val))
-            if cur is None:
-                added.append(m["id"])
-    for row in con.execute("SELECT key FROM kv WHERE scope='customModels' AND key LIKE ?", (f"{prefix}|%",)):
-        mid = row["key"].split("|")[1]
-        if mid not in keep_ids:
-            con.execute("DELETE FROM kv WHERE scope='customModels' AND key=?", (row["key"],))
-            removed.append(mid)
+        aliases_to_register = [prefix, f"openai-compatible-chat-{prefix}"]
+        for p_alias in aliases_to_register:
+            key = f"{p_alias}|{m['id']}|llm"
+            val = json.dumps({"providerAlias": p_alias, "id": m["id"], "type": "llm", "name": m["id"]})
+            cur = con.execute("SELECT value FROM kv WHERE scope='customModels' AND key=?", (key,)).fetchone()
+            if cur is None or cur["value"] != val:
+                con.execute(
+                    "INSERT INTO kv(scope, key, value) VALUES('customModels', ?, ?) "
+                    "ON CONFLICT(scope, key) DO UPDATE SET value=excluded.value",
+                    (key, val))
+                if cur is None and p_alias == prefix:
+                    added.append(m["id"])
+    for p_alias in [prefix, f"openai-compatible-chat-{prefix}"]:
+        for row in con.execute("SELECT key FROM kv WHERE scope='customModels' AND key LIKE ?", (f"{p_alias}|%",)):
+            parts = row["key"].split("|")
+            if len(parts) >= 2:
+                mid = parts[1]
+                if mid not in keep_ids:
+                    con.execute("DELETE FROM kv WHERE scope='customModels' AND key=?", (row["key"],))
+                    if p_alias == prefix:
+                        removed.append(mid)
     return {"imported": [m["id"] for m in keep], "added": added, "removed": removed,
             "skipped_unavailable": sorted({m["id"] for m in all_models} - keep_ids)}
 
