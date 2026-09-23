@@ -6,13 +6,13 @@
 #   scripts/verify.sh [router_api_key]
 # Env:
 #   NINE_ROUTER_URL     (default http://127.0.0.1:20128)
-#   FREEBUCKS_PROXY_URL (default http://127.0.0.1:3457)
+#   FREEBUFF_PROXY_URL  (default http://127.0.0.1:3457)
 #   FREEBUFF_MODEL      (default freebuff/z-ai/glm-5.3-flash)
 #   NINE_ROUTER_DB      (default ~/.9router/db/data.sqlite)
 set -uo pipefail
 
 ROUTER="${NINE_ROUTER_URL:-http://127.0.0.1:20128}"
-PROXY="${FREEBUCKS_PROXY_URL:-http://127.0.0.1:3457}"
+PROXY="${FREEBUFF_PROXY_URL:-${FREEBUCKS_PROXY_URL:-http://127.0.0.1:3457}}"
 MODEL="${FREEBUFF_MODEL:-freebuff/z-ai/glm-5.3-flash}"
 DB="${NINE_ROUTER_DB:-$HOME/.9router/db/data.sqlite}"
 KEY="${1:-}"
@@ -31,9 +31,9 @@ def skip(msg): print("   SKIP —", msg)
 # 1. proxy health
 try:
     h = json.load(urllib.request.urlopen(proxy + "/healthz", timeout=10))
-    ok(f"freebucks-proxy healthz (mode={h.get('mode')}, uptime={int(h.get('uptime_seconds', 0))}s)")
+    ok(f"freebuff-proxy healthz (mode={h.get('mode')}, uptime={int(h.get('uptime_seconds', 0))}s)")
 except Exception as e:
-    bad(f"proxy healthz: {e} (systemctl status freebucks-proxy)"); fail = True
+    bad(f"proxy healthz: {e} (systemctl status freebuff-proxy)"); fail = True
 
 # 2. proxy catalog
 try:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-freebuff9r — register the FreeBuff provider (freebucks-proxy) inside 9Router.
+freebuff9r — register the FreeBuff provider inside 9Router.
 
 Adds an `openai-compatible` provider node + one provider connection per
 FreeBuff account token directly into 9Router's SQLite database
@@ -49,9 +49,9 @@ import uuid
 from datetime import datetime, timezone
 
 DEFAULT_DB = os.environ.get("NINE_ROUTER_DB", os.path.expanduser("~/.9router/db/data.sqlite"))
-DEFAULT_PROXY = os.environ.get("FREEBUCKS_PROXY_URL", "http://127.0.0.1:3457")
+DEFAULT_PROXY = os.environ.get("FREEBUFF_PROXY_URL", os.environ.get("FREEBUCKS_PROXY_URL", "http://127.0.0.1:3457"))
 DEFAULT_PREFIX = os.environ.get("FREEBUFF_PREFIX", "freebuff")
-DEFAULT_NAME = os.environ.get("FREEBUFF_NODE_NAME", "FreeBuff (freebucks-proxy)")
+DEFAULT_NAME = os.environ.get("FREEBUFF_NODE_NAME", "FreeBuff")
 UPSTREAM_BASE = os.environ.get("FREEBUFF_UPSTREAM", "https://www.codebuff.com")
 LOGIN_UA = "ai-sdk/openai-compatible/1.0.0/codebuff"  # CLI-parity UA (fingerprintable surface)
 
@@ -391,9 +391,9 @@ def cmd_verify(args):
     # 1. proxy health
     try:
         http_json(f"{DEFAULT_PROXY}/healthz", timeout=5)
-        print("[✓] freebucks-proxy healthz 200")
+        print("[✓] freebuff-proxy healthz 200")
     except Exception as e:
-        print(f"[✗] freebucks-proxy healthz failed: {e}")
+        print(f"[✗] freebuff-proxy healthz failed: {e}")
         return 1
     # 2. proxy model catalog
     try:
@@ -541,7 +541,7 @@ def main():
     p.add_argument("--db", default=DEFAULT_DB, help=f"9Router SQLite path (default {DEFAULT_DB})")
     p.add_argument("--prefix", default=DEFAULT_PREFIX, help=f"provider prefix (default {DEFAULT_PREFIX})")
     p.add_argument("--name", default=DEFAULT_NAME, help="provider node display name")
-    p.add_argument("--proxy-url", default=DEFAULT_PROXY, help=f"freebucks-proxy base URL (default {DEFAULT_PROXY})")
+    p.add_argument("--proxy-url", default=DEFAULT_PROXY, help=f"freebuff-proxy base URL (default {DEFAULT_PROXY})")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("register", help="create/refresh the provider node (+ seed connection)")

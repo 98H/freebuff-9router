@@ -6,12 +6,12 @@
 |---|---|---|
 | FreeBuff account tokens | `~/.9router/db/data.sqlite` `providerConnections.data.apiKey` | SQLite file perms + 9Router host access control; DB outside node_modules |
 | 9Router API key | same DB `apiKeys` | as above |
-| proxy admin token | `/etc/freebucks-proxy/env` (0640 root:freebucks-proxy) | generated 24-byte hex at install |
-| proxy session/history DB | `/var/lib/freebucks-proxy/` (dedicated system user) | systemd `ProtectSystem=strict`, `ProtectHome=true`, `NoNewPrivileges=true` |
+| proxy admin token | `/etc/freebuff-proxy/env` (0640 root:freebuff-proxy) | generated 24-byte hex at install |
+| proxy session/history DB | `/var/lib/freebuff-proxy/` (dedicated system user) | systemd `ProtectSystem=strict`, `ProtectHome=true`, `NoNewPrivileges=true` |
 
 ## Network exposure
 
-- **freebucks-proxy binds `127.0.0.1:3457` only.** The admin dashboard and `/v1/*`
+- **freebuff-proxy binds `127.0.0.1:3457` only.** The admin dashboard and `/v1/*`
   are unreachable from other hosts. To use the dashboard:
   `ssh -L 3457:127.0.0.1:3457 user@host` → `http://127.0.0.1:3457/admin`.
 - 9Router itself binds all interfaces by default (its own design). If this host is
@@ -46,7 +46,7 @@
 - [x] systemd sandbox: `ProtectSystem=strict`, `ProtectHome=true`,
       `NoNewPrivileges=true`, `ReadWritePaths` limited to its state dir
 - [x] admin token generated at install (never the upstream default `123456`)
-- [x] env file 0640 root:freebucks-proxy
+- [x] env file 0640 root:freebuff-proxy
 - [ ] change 9Router's dashboard/admin access policy per your host (out of scope here)
 - [ ] if you expose 9Router beyond localhost: front it with TLS + auth or a VPN
       (Tailscale/WireGuard)
@@ -74,8 +74,8 @@
 
 - Suspected token leak → rotate immediately: re-login each account
   (`login-url` + `wait-login --replace`) or `remove` + re-register.
-- Proxy misbehaving → `systemctl stop freebucks-proxy`; everything degrades to
+- Proxy misbehaving → `systemctl stop freebuff-proxy`; everything degrades to
   "models unavailable" in 9Router, no data loss.
 - Full teardown → `python3 freebuff9r.py remove` + `systemctl disable --now
-  freebucks-proxy` (+ delete `/usr/local/bin/freebucks-proxy`,
-  `/etc/freebucks-proxy/`, the system user).
+  freebuff-proxy` (+ delete `/usr/local/bin/freebuff-proxy`,
+  `/etc/freebuff-proxy/`, the system user).

@@ -99,7 +99,8 @@ def run():
     # -----------------------------------------------------------------
     # 0. Ensure public asset exists
     # -----------------------------------------------------------------
-    asset_src = "/root/projects/freebuff-9router/assets/freebuff.png"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    asset_src = os.path.join(script_dir, "assets/freebuff.png")
     asset_dst = os.path.join(os.path.dirname(build_dir), "public/providers/freebuff.png")
     if os.path.exists(asset_src):
         os.makedirs(os.path.dirname(asset_dst), exist_ok=True)
@@ -164,7 +165,7 @@ def run():
             'for(let conn of existing){conn.priority&&conn.priority>maxPri&&(maxPri=conn.priority)}'
             'let match=email?existing.find(c=>c.email===email):null,savedConn;'
             'if(match){savedConn=await(0,i.updateProviderConnection)(match.id,{apiKey:token,name:email||name,testStatus:"active"})}'
-            'else{savedConn=await(0,i.createProviderConnection)({provider:"openai-compatible-chat-freebuff",authType:"apikey",name:email||name,email:email,priority:maxPri+1,apiKey:token,providerSpecificData:{prefix:"freebuff",apiType:"chat",baseUrl:"http://127.0.0.1:3457/v1",nodeName:"FreeBuff (freebucks-proxy)",connectionProxyEnabled:!1,connectionProxyUrl:"",connectionNoProxy:""},testStatus:"active"})}'
+            'else{savedConn=await(0,i.createProviderConnection)({provider:"openai-compatible-chat-freebuff",authType:"apikey",name:email||name,email:email,priority:maxPri+1,apiKey:token,providerSpecificData:{prefix:"freebuff",apiType:"chat",baseUrl:"http://127.0.0.1:3457/v1",nodeName:"FreeBuff",connectionProxyEnabled:!1,connectionProxyUrl:"",connectionNoProxy:""},testStatus:"active"})}'
             'return g.NextResponse.json({success:!0,connection:{id:savedConn.id,provider:savedConn.provider}})}}'
         )
         patch_file(s_oauth, target_post, inject_post, "Server OAuth: FreeBuff poll POST handler")

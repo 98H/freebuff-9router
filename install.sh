@@ -3,7 +3,7 @@
 #
 # What it does:
 #   1. checks prerequisites (go, node, 9Router, systemd)
-#   2. clones + builds freebucks-proxy from the pinned upstream tag
+#   2. clones + builds freebuff-proxy from the pinned upstream tag
 #   3. installs the binary + a hardened systemd service (loopback-only, bridge mode)
 #   4. backs up 9Router's SQLite DB and registers the `freebuff` provider node
 #   5. starts the FreeBuff device login and prints the approval URL
@@ -25,7 +25,7 @@ FREEBUFF_LISTEN="${FREEBUFF_LISTEN:-127.0.0.1:3457}"
 FREEBUFF_PREFIX="${FREEBUFF_PREFIX:-freebuff}"
 NINE_ROUTER_DB="${NINE_ROUTER_DB:-$HOME/.9router/db/data.sqlite}"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="${BUILD_DIR:-/tmp/freebucks-proxy-build}"
+BUILD_DIR="${BUILD_DIR:-/tmp/freebuff-proxy-build}"
 
 c()  { printf '\033[36m%s\033[0m\n' "$*"; }
 ok() { printf '\033[32m%s\033[0m\n' "$*"; }
@@ -49,8 +49,8 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
 fi
 [ -f "$NINE_ROUTER_DB" ] || { err "9Router DB not found at $NINE_ROUTER_DB — install/start 9Router first"; exit 1; }
 
-c "==> 2/5 building freebucks-proxy ($FREEBUFF_UPSTREAM_TAG)"
-PROXY_BIN="/usr/local/bin/freebucks-proxy"
+c "==> 2/5 building freebuff-proxy ($FREEBUFF_UPSTREAM_TAG)"
+PROXY_BIN="/usr/local/bin/freebuff-proxy"
 if [ "${SKIP_BUILD:-0}" = "1" ] && [ -x "$PROXY_BIN" ]; then
   ok "    using existing $PROXY_BIN (SKIP_BUILD=1)"
 else
@@ -75,16 +75,17 @@ else
   npm --prefix "$BUILD_DIR/frontend" run build >/dev/null
   (cd "$BUILD_DIR" && go build -o "$PROXY_BIN" ./backend/cmd/freebucks-proxy)
   chmod 0755 "$PROXY_BIN"
+  ln -sf "$PROXY_BIN" /usr/local/bin/freebucks-proxy
   ok "    built $PROXY_BIN"
 fi
 
 c "==> 3/5 systemd service (loopback-only, bridge mode)"
-id -u freebucks-proxy >/dev/null 2>&1 || useradd --system --home-dir /var/lib/freebucks-proxy --shell /usr/sbin/nologin freebucks-proxy
-mkdir -p /etc/freebucks-proxy /var/lib/freebucks-proxy
-if [ ! -f /etc/freebucks-proxy/env ]; then
+id -u freebuff-proxy >/dev/null 2>&1 || useradd --system --home-dir /var/lib/freebuff-proxy --shell /usr/sbin/nologin freebuff-proxy
+mkdir -p /etc/freebuff-proxy /var/lib/freebuff-proxy
+if [ ! -f /etc/freebuff-proxy/env ]; then
   ADMIN_TOKEN="$(openssl rand -hex 24)"
-  cat > /etc/freebucks-proxy/env <<EOF
-# freebucks-proxy — managed by freebuff-9router/install.sh
+  cat > /etc/freebuff-proxy/env <<EOF
+# freebuff-proxy — managed by freebuff-9router/install.sh
 # Bridge mode: AUTH_TOKENS stays empty. Each request's Bearer IS the upstream
 # FreeBuff token (relayed from the 9Router connection). Tokens live only in
 # 9Router's SQLite, never here.
@@ -97,17 +98,17 @@ ADMIN_TOKEN=${ADMIN_TOKEN}
 LOG_LEVEL=info
 LOG_ACCESS=true
 EOF
-  chown root:freebucks-proxy /etc/freebucks-proxy/env && chmod 640 /etc/freebucks-proxy/env
-  ok "    wrote /etc/freebucks-proxy/env (ADMIN_TOKEN generated — keep a copy: sudo cat /etc/freebucks-proxy/env)"
+  chown root:freebuff-proxy /etc/freebuff-proxy/env && chmod 640 /etc/freebuff-proxy/env
+  ok "    wrote /etc/freebuff-proxy/env (ADMIN_TOKEN generated — keep a copy: sudo cat /etc/freebuff-proxy/env)"
 else
-  warn "    /etc/freebucks-proxy/env already exists — left untouched"
+  warn "    /etc/freebuff-proxy/env already exists — left untouched"
 fi
-install -m 0644 "$REPO_DIR/systemd/freebucks-proxy.service" /etc/systemd/system/freebucks-proxy.service
-chown -R freebucks-proxy:freebucks-proxy /var/lib/freebucks-proxy
+install -m 0644 "$REPO_DIR/systemd/freebuff-proxy.service" /etc/systemd/system/freebuff-proxy.service
+chown -R freebuff-proxy:freebuff-proxy /var/lib/freebuff-proxy
 systemctl daemon-reload
-systemctl enable --now freebucks-proxy >/dev/null 2>&1 || systemctl restart freebucks-proxy
+systemctl enable --now freebuff-proxy >/dev/null 2>&1 || systemctl restart freebuff-proxy
 sleep 2
-systemctl is-active --quiet freebucks-proxy && ok "    service active" || { err "service failed — journalctl -u freebucks-proxy -n 50"; exit 1; }
+systemctl is-active --quiet freebuff-proxy && ok "    service active" || { err "service failed — journalctl -u freebuff-proxy -n 50"; exit 1; }
 curl -sf "http://${FREEBUFF_LISTEN#*:}/healthz" >/dev/null 2>&1 || curl -sf "http://${FREEBUFF_LISTEN}/healthz" >/dev/null || { err "healthz failed"; exit 1; }
 ok "    healthz OK"
 

@@ -6,7 +6,7 @@
 |---|---|---|---|
 | Client | Hermes / OpenCode / Cline / aider / … | — | stateless |
 | Router | 9Router (Next.js standalone) | 20128 | SQLite `~/.9router/db/data.sqlite` |
-| Gateway | freebucks-proxy (Go, single binary) | 3457 (loopback) | SQLite `data/freebucks.db` (sessions/history) |
+| Gateway | freebuff-proxy (Go, single binary) | 3457 (loopback) | SQLite `data/freebuff.db` (sessions/history) |
 | Upstream | codebuff.com (FreeBuff) | 443 | server-side session per account |
 
 ## The wire
@@ -20,7 +20,7 @@
    one per FreeBuff account), strips the prefix, and POSTs
    `{proxy}/v1/chat/completions` with `model: "z-ai/glm-5.3-flash"` and
    `Authorization: Bearer <connection.apiKey>`.
-3. freebucks-proxy runs in **bridge mode**: the Bearer IS the upstream FreeBuff token.
+3. freebuff-proxy runs in **bridge mode**: the Bearer IS the upstream FreeBuff token.
    It opens/reuses a FreeBuff session for that token (one live session per account,
    exactly like the official CLI), translates the request to the upstream wire
    protocol (session admission, run start, streaming tool turns, FINISH), and
@@ -46,13 +46,14 @@ pairs 9Router with **bridge mode** (the pairing the upstream's own
 "Providers → Add OpenAI Compatible" dialog writes:
 
 - `providerNodes` row:
-  - `id = "openai-compatible-chat-<uuid>"`
+  - `id = "openai-compatible-chat-freebuff"`
   - `type = "openai-compatible"`
+  - `name = "FreeBuff"`
   - `data = {"prefix": "freebuff", "apiType": "chat", "baseUrl": "http://127.0.0.1:3457/v1"}`
 - `providerConnections` row (one per account):
   - `provider = <node id>`, `authType = "apikey"`, `isActive = 1`
   - `data = {"apiKey": <freebuff token>, "providerSpecificData": {"prefix", "apiType",
-    "baseUrl", "nodeName", "connectionProxy*"}, "testStatus": "active"}`
+    "baseUrl", "nodeName": "FreeBuff", "connectionProxy*"}, "testStatus": "active"}`
 
 Model listing needs **no static model table**: 9Router's `buildModelsList` live-fetches
 `{baseUrl}/models` for openai-compatible connections with no `enabledModels` whitelist

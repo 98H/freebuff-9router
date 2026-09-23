@@ -2,7 +2,7 @@
 
 اتصال مدل‌های رایگان کدنویسی **FreeBuff** (GLM 5.3 Flash، DeepSeek V4 Flash، MiMo، Solar Pro و…)
 به **ناین‌روتر** به‌عنوان یک پرووایدر استاندارد، با استفاده از
-**[freebucks-proxy](https://github.com/trefeon/freebucks-proxy)** به‌عنوان گیت‌وی محلی.
+**freebuff-proxy** به‌عنوان گیت‌وی محلی.
 
 ```
 ابزارهای شما (Hermes / OpenCode / Cline / aider / codex / هر کلاینت OpenAI)
@@ -11,7 +11,7 @@
 9Router  (localhost:20128 — پیشوند: freebuff/*)
         │  سازگار با OpenAI — Bearer = توکن FreeBuff شما
         ▼
-freebucks-proxy  (127.0.0.1:3457 — حالت bridge)
+freebuff-proxy  (127.0.0.1:3457 — حالت bridge)
         │  ترجمه پروتکل + مدیریت سشن مطابق CLI رسمی
         ▼
 codebuff.com  (سرویس FreeBuff)
@@ -71,7 +71,7 @@ python3 freebuff9r.py wait-login --fingerprint <FP> --hash <HASH> --expires-at <
 
 ## نصب‌کننده دقیقاً چه می‌کند؟
 
-1. `freebucks-proxy` را از تگ منتشرشده upstream بیلد و در `/usr/local/bin/` نصب می‌کند.
+1. `freebuff-proxy` را از تگ منتشرشده upstream بیلد و در `/usr/local/bin/` نصب می‌کند.
 2. سرویس systemd با سخت‌گیری امنیتی می‌سازد: یوزر سیستمی مجزا،
    `ProtectSystem=strict`، اتصال فقط روی loopback (`127.0.0.1:3457`)،
    `SAFE_MODE=true`، `COST_MODE=free`، حالت bridge (بدون `AUTH_TOKENS`).
@@ -88,7 +88,7 @@ python3 freebuff9r.py wait-login --fingerprint <FP> --hash <HASH> --expires-at <
 | توکن‌های FreeBuff | `providerConnections.data.apiKey` (همان دیتابیس) | ✅ می‌ماند |
 | فهرست مدل‌ها | درخواست‌به‌درخواست از `/v1/models` پراکسی | ✅ همیشه تازه |
 | باینری و سرویس پراکسی | `/usr/local/bin` + systemd | ✅ مستقل از ناین‌روتر |
-| تنظیمات پراکسی | `/etc/freebucks-proxy/env` (سطح دسترسی 0600) | ✅ می‌ماند |
+| تنظیمات پراکسی | `/etc/freebuff-proxy/env` (سطح دسترسی 0600) | ✅ می‌ماند |
 
 هیچ فایلی داخل درخت نصب ناین‌روتر تغییر نمی‌کند. ناین‌روتر در هر درخواست
 `providerConnections` را از SQLite می‌خواند، پس ثبت نیاز به ری‌استارت ندارد.
@@ -97,7 +97,7 @@ python3 freebuff9r.py wait-login --fingerprint <FP> --hash <HASH> --expires-at <
 ## حذف کامل
 
 ```bash
-sudo systemctl disable --now freebucks-proxy
+sudo systemctl disable --now freebuff-proxy
 python3 freebuff9r.py remove
 ```
 
@@ -128,7 +128,7 @@ python3 freebuff9r.py remove
 
 | علامت | معنی / راه‌حل |
 |---|---|
-| مدل‌های `freebuff/*` در `/v1/models` نیستند | پراکسی Down؟ `systemctl status freebucks-proxy` و `python3 freebuff9r.py status` |
+| مدل‌های `freebuff/*` در `/v1/models` نیستند | پراکسی Down؟ `systemctl status freebuff-proxy` و `python3 freebuff9r.py status` |
 | خطای `502 upstream_auth_rejected` | توکن آن connection منقضی/باطل شده — جریان login را با `--replace` تکرار کنید |
 | `503 session_superseded` | جای نشست آن اکانت توسط کلاینت دیگری گرفته شده؛ صبر کنید یا اکانت دوم اضافه کنید |
 | موج 429 | اکانت بیشتر اضافه کنید (هر اکانت = یک connection) یا ترافیک را کم کنید؛ سهمیه FreeBuff روزانه ریست می‌شود |
