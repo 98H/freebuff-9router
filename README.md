@@ -24,8 +24,7 @@ codebuff.com  (FreeBuff upstream)
   in the dashboard (Providers → FreeBuff). The toggles are the single source
   of truth: what you enable there is exactly what `/model` pickers serve;
   disable one and it vanishes within a second (see **Model list sync** below).
-- One 9Router **connection per FreeBuff account**; 9Router's native multi-connection
-  rotation spreads traffic across your accounts (same pattern as multiple Cline accounts).
+- One 9Router **connection per FreeBuff account**, governed by the **Fill-First Sequential Routing & Exhaust-First Session Guardian**: FreeBuff charges credits (Freebucks) upon 1-hour session admission rather than per-token. Using Round-Robin would trigger simultaneous 1-hour sessions across multiple accounts, leading to disastrous multi-session bleeding where all accounts burn their daily quota in parallel! Instead, FreeBuff connection selection is hard-locked to `fill-first`. 9Router pins requests strictly to the current active account until its daily quota is genuinely exhausted. Transient server errors (500–504) and short rate limits (429) keep the account pinned; only genuine daily exhaustion triggers sequential promotion with an unconstrained lockout until the exact upstream `resetAt` time.
 - **Bridge mode** end to end: the FreeBuff token lives *only* in 9Router's SQLite and is
   relayed per-request; the proxy stores no tokens and needs no pool configuration.
 - **Zero 9Router patches.** Everything is registered through 9Router's own

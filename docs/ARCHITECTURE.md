@@ -35,10 +35,36 @@ pairs 9Router with **bridge mode** (the pairing the upstream's own
 `server_bridge_9router_test.go` pins):
 
 - token custody stays in 9Router's SQLite — one credential store for all providers;
-- multi-account rotation is 9Router's native connection priority/backoff logic, which
-  the user already operates for Cline/Antigravity accounts;
+- multi-account routing is governed by 9Router's connection priority, enhanced by the **FreeBuff Exhaust-First Session Guardian**;
 - the proxy stays stateless w.r.t. tokens, so proxy restarts never touch credentials;
 - the proxy dashboard still shows bridged sessions and credit state per token.
+
+## FreeBuff Session Cost Model & Exhaust-First Guardian
+
+### The Hourly Session Cost Model
+Upstream FreeBuff (Codebuff) meters usage by **session admission** (charging 5–25 Freebucks per session hour depending on model tier), NOT strictly per-token:
+- When a request begins, a 1-hour session is admitted upstream.
+- Whether a user exchanges one quick message or continuously streams tokens, the 1-hour session fee is committed.
+- **The Round-Robin Hazard (Multi-Session Bleeding):** In traditional providers, round-robin balances request loads. In FreeBuff, distributing requests round-robin across accounts would immediately admit and start 1-hour sessions on *all accounts simultaneously*. If 10 accounts each receive 1 request, 10 distinct 1-hour sessions are opened, bleeding daily Freebucks quota across all accounts in parallel.
+
+### Solution: Fill-First & Exhaust-First Guardian Architecture
+To achieve mathematical optimality and prevent session bleeding:
+1. **Hard-Locked Fill-First Routing:**
+   - In 9Router's connection selector (`server/chunks/4572.js`), connection routing for any provider matching `freebuff` is strictly forced to `fill-first`, regardless of user GUI settings.
+   - All requests are pinned to the highest-priority active connection.
+2. **Transient Error Pinning:**
+   - Server errors (500, 502, 503, 504) and transient rate limits (429 with short retry or no quota exhaustion indicator) do NOT trigger account failover.
+   - Failover on transient glitches would trigger a new 1-hour session on the next account. Instead, the Guardian returns the error directly to the caller, keeping the account pinned.
+3. **Exhaustion-Only Sequential Promotion:**
+   - Sequential promotion occurs ONLY upon genuine daily quota exhaustion:
+     - HTTP 401 (token invalidated/revoked)
+     - HTTP 402 (payment/freebucks balance exhausted)
+     - HTTP 403 (account banned/restricted)
+     - HTTP 429 containing explicit reset timestamps (`reset at ...`, `resets at ...`), long retries (>10 min), or quota keywords (`allowance`, `ceiling`, `exhaust`, `spent`, `freebucks`, `balance`, `insufficient`).
+   - The exhausted connection is locked out at the connection level (`modelLock___all`) until the exact upstream `resetAt` time (or 12 hours) and the cooldown is unclamped from the default 30-minute ceiling.
+   - 9Router sequentially fails over to the next priority account.
+4. **Zero-Cost Probe Bypass:**
+   - Synthetic health probes ("hi", "test") are answered immediately at zero cost without opening an upstream session.
 
 ## 9Router registration internals
 

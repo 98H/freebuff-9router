@@ -61,14 +61,23 @@ def patch_file(filepath, old_str, new_str, label):
         # Already applied
         return True
 
-    if old_str not in content:
+    matched_old = None
+    if isinstance(old_str, list):
+        for candidate in old_str:
+            if candidate in content:
+                matched_old = candidate
+                break
+    elif old_str in content:
+        matched_old = old_str
+
+    if not matched_old:
         print(f"  [?] Target not found for {label} in {os.path.basename(filepath)}")
         return False
 
     backup_path = filepath + ".bak"
     shutil.copy2(filepath, backup_path)
 
-    new_content = content.replace(old_str, new_str, 1)
+    new_content = content.replace(matched_old, new_str, 1)
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(new_content)
 
@@ -443,9 +452,13 @@ def run():
         repl_strategy = 'let r=await (0,d.mt)(),s=(r.providerStrategies||{})[g]||{},t=(g?.includes("freebuff")||a?.includes("freebuff"))?"fill-first":(s.fallbackStrategy||r.fallbackStrategy||"fill-first");'
         patch_file(c_4572, target_strategy, repl_strategy, "Server connection selector: FreeBuff fill-first enforcement (4572.js)")
 
+        target_clamp = 'k&&k>Date.now()?(l=!0,n="antigravity"===(0,h.rs)(e)?k-Date.now():Math.min(k-Date.now(),g.fh),o=0)'
+        repl_clamp = 'k&&k>Date.now()?(l=!0,n=("antigravity"===(0,h.rs)(e)||e?.includes("freebuff"))?k-Date.now():Math.min(k-Date.now(),g.fh),o=0)'
+        patch_file(c_4572, target_clamp, repl_clamp, "Server connection selector: FreeBuff unclamp cooldown (4572.js)")
+
     # 8b. FreeBuff Exhaust-First Fallback Guardian:
     #     Transient errors (500/502/503/504 or short 429) keep the current account pinned to prevent multi-session bleeding.
-    #     Only genuine daily exhaustion (402 or daily quota limit 429) triggers failover with long lockout.
+    #     Only genuine daily exhaustion (401/402/403 or quota limit/reset 429) triggers failover with lockout.
     c_8635 = os.path.join(build_dir, "server/chunks/8635.js")
     if os.path.exists(c_8635):
         with open(c_8635, "r", encoding="utf-8") as f:
@@ -475,11 +488,11 @@ def run():
             patch_file(c_8635, target_dis_check, repl_dis_check, "Server router: FreeBuff disabled model interceptor (8635.js)")
 
         target_fb_fallback = 'if("antigravity"===w&&(409===q.status||429===q.status)&&(z=await (0,g.XJ)(b.connectionId,q.status,x,i.accessToken,b.providerSpecificData))&&(D=z),"antigravity"===w&&z||(await (0,f.vk)(b.connectionId,q.status,q.error,w,x,D)).shouldFallback){t.warn("FALLBACK",`⇄ ACC:${b.connectionName} UNAVAILABLE (${q.status}) → NEXT ACCOUNT`),A.add(b.connectionId),B=q.error,C=q.status;continue}'
-        repl_fb_fallback = (
+
+        old_fb_guardian = (
             'let isFb=w?.includes("freebuff");'
             'if(isFb){'
             'let fbCode=q.status;'
-            # Connection-health errors handled by guardian
             'if(fbCode===429||fbCode>=500||fbCode===401||fbCode===402){'
             'let fbText=String(q.error||"").toLowerCase();'
             'let isFbExhausted=fbCode===402||fbCode===401||'
@@ -491,13 +504,47 @@ def run():
             'await (0,f.vk)(b.connectionId,fbCode,q.error,w,x,lockMs);'
             't.warn("FALLBACK",`[FreeBuff Guardian] Account ${b.connectionName} daily quota exhausted (${fbCode}) → sequentially promoting next account`);'
             'A.add(b.connectionId),B=q.error,C=fbCode;continue;}'
-            # Non-connection errors (400 etc) - return directly, no failover
             'if(fbCode<500&&fbCode!==429&&fbCode!==401&&fbCode!==402){'
             'return q.response;}}'
-            + target_fb_fallback
         )
-        if "FREEBUFF_GUARDIAN" not in c_8635_content and target_fb_fallback in c_8635_content:
-            patch_file(c_8635, target_fb_fallback, repl_fb_fallback, "Server router: FreeBuff exhaust-first guardian (8635.js)")
+
+        repl_fb_guardian = (
+            'let isFb=w?.includes("freebuff");'
+            'if(isFb){'
+            'let fbCode=q.status;'
+            'if(fbCode===429||fbCode>=500||fbCode===401||fbCode===402||fbCode===403){'
+            'let fbText=(typeof q.error==="object"?JSON.stringify(q.error):String(q.error||"")).toLowerCase();'
+            'let resetMatch=fbText.match(/reset(?:s)?\\s+at\\s+([0-9a-z:\\.\\-]+)/i);'
+            'let parsedResetMs=null;'
+            'if(resetMatch){'
+            'let dt=new Date(resetMatch[1]).getTime();'
+            'if(!isNaN(dt)&&dt>Date.now())parsedResetMs=dt;}'
+            'let retryMatch=fbText.match(/retry\\s+after\\s+([0-9]+)\\s*([smhd]?)/i);'
+            'let parsedRetryMs=null;'
+            'if(retryMatch){'
+            'let num=parseInt(retryMatch[1],10);'
+            'let unit=retryMatch[2]?.toLowerCase();'
+            'let mult=unit==="h"?3600000:unit==="m"?60000:unit==="d"?86400000:1000;'
+            'if(!isNaN(num))parsedRetryMs=Date.now()+(num*mult);}'
+            'let isLongRetry=(parsedRetryMs&&parsedRetryMs>Date.now()+600000)||(D&&D>Date.now()+600000);'
+            'let hasQuotaKeyword=fbText.includes("allowance")||fbText.includes("quota")||fbText.includes("ceiling")||'
+            'fbText.includes("exhaust")||fbText.includes("spent")||fbText.includes("freebucks")||'
+            'fbText.includes("balance")||fbText.includes("payment_required")||fbText.includes("insufficient");'
+            'let isFbExhausted=fbCode===401||fbCode===402||fbCode===403||'
+            'parsedResetMs!==null||isLongRetry||(fbCode===429&&hasQuotaKeyword);'
+            'if(!isFbExhausted){'
+            't.warn("FREEBUFF_GUARDIAN",`[FreeBuff Guardian] Transient error (${fbCode}) on ${b.connectionName} - keeping account pinned to prevent multi-session bleeding`);'
+            'return q.response;}'
+            'let lockMs=parsedResetMs||parsedRetryMs||(D&&D>Date.now()?D:Date.now()+43200000);'
+            'await (0,f.vk)(b.connectionId,fbCode,q.error,w,null,lockMs);'
+            'let resetStr=new Date(lockMs).toISOString();'
+            't.warn("FALLBACK",`[FreeBuff Guardian] Account ${b.connectionName} quota exhausted (${fbCode}, reset: ${resetStr}) → sequentially promoting next account`);'
+            'A.add(b.connectionId),B=q.error,C=fbCode;continue;}'
+            'if(fbCode<500&&fbCode!==429&&fbCode!==401&&fbCode!==402&&fbCode!==403){'
+            'return q.response;}}'
+        )
+
+        patch_file(c_8635, [old_fb_guardian + target_fb_fallback, old_fb_guardian, target_fb_fallback], repl_fb_guardian + target_fb_fallback, "Server router: FreeBuff exhaust-first guardian (8635.js)")
 
     # 8c. Ensure 9Router DB providerStrategies reflects fill-first
     try:
