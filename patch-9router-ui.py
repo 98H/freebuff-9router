@@ -433,6 +433,120 @@ def run():
         if os.path.exists(c_chunk):
             patch_file(c_chunk, target_router, repl_router, f"Server router: FreeBuff model alias mapping ({os.path.basename(c_chunk)})")
 
+    # -----------------------------------------------------------------
+    # 8. Server FreeBuff Sequential & Exhaust-First Session Guardian
+    # -----------------------------------------------------------------
+    # 8a. Hard-lock FreeBuff connection routing to fill-first (sequential only, immune to round-robin)
+    c_4572 = os.path.join(build_dir, "server/chunks/4572.js")
+    if os.path.exists(c_4572):
+        target_strategy = 'let r=await (0,d.mt)(),s=(r.providerStrategies||{})[g]||{},t=s.fallbackStrategy||r.fallbackStrategy||"fill-first";'
+        repl_strategy = 'let r=await (0,d.mt)(),s=(r.providerStrategies||{})[g]||{},t=(g?.includes("freebuff")||a?.includes("freebuff"))?"fill-first":(s.fallbackStrategy||r.fallbackStrategy||"fill-first");'
+        patch_file(c_4572, target_strategy, repl_strategy, "Server connection selector: FreeBuff fill-first enforcement (4572.js)")
+
+    # 8b. FreeBuff Exhaust-First Fallback Guardian:
+    #     Transient errors (500/502/503/504 or short 429) keep the current account pinned to prevent multi-session bleeding.
+    #     Only genuine daily exhaustion (402 or daily quota limit 429) triggers failover with long lockout.
+    c_8635 = os.path.join(build_dir, "server/chunks/8635.js")
+    if os.path.exists(c_8635):
+        with open(c_8635, "r", encoding="utf-8") as f:
+            c_8635_content = f.read()
+
+        # Inject _disMod=c(9248) at top of module 79489 so we can call _disMod.vF() inside z()
+        target_disMod = 'var e=c(48895),'
+        repl_disMod = 'var _disMod=c(9248),e=c(48895),'
+        if '_disMod' not in c_8635_content and target_disMod in c_8635_content:
+            patch_file(c_8635, target_disMod, repl_disMod, "Server router: inject _disMod=c(9248) for disabled model check (8635.js)")
+            # Re-read after patch
+            with open(c_8635, "r", encoding="utf-8") as f:
+                c_8635_content = f.read()
+
+        # Check disabled models at router entry — uses _disMod.vF() with flexible suffix matching
+        target_dis_check = 'let{provider:w,model:x}=q,y=d?.headers?.get("user-agent")||"",A=new Set,B=null,C=null;'
+        repl_dis_check = (
+            'let{provider:w,model:x}=q;'
+            'try{let _dis=await _disMod.vF();let _dl=_dis[w]||_dis["openai-compatible-chat-freebuff"]||_dis["freebuff"]||[];'
+            'let _cleanM=b.includes("/")?b.slice(b.indexOf("/")+1):b;'
+            'let _isDis=Array.isArray(_dl)&&_dl.some(d=>d===x||d===b||d===_cleanM||d.split("/").pop()===_cleanM.split("/").pop()||d.split("/").pop()===x.split("/").pop());'
+            'if(_isDis){'
+            'return t.warn("CHAT",`Model \'${b}\' is disabled`),(0,n.yj)(r.gx.BAD_REQUEST,`Model \'${b}\' is disabled`);}}catch(e){}'
+            'let y=d?.headers?.get("user-agent")||"",A=new Set,B=null,C=null;'
+        )
+        if "Model '${b}' is disabled" not in c_8635_content and target_dis_check in c_8635_content:
+            patch_file(c_8635, target_dis_check, repl_dis_check, "Server router: FreeBuff disabled model interceptor (8635.js)")
+
+        target_fb_fallback = 'if("antigravity"===w&&(409===q.status||429===q.status)&&(z=await (0,g.XJ)(b.connectionId,q.status,x,i.accessToken,b.providerSpecificData))&&(D=z),"antigravity"===w&&z||(await (0,f.vk)(b.connectionId,q.status,q.error,w,x,D)).shouldFallback){t.warn("FALLBACK",`⇄ ACC:${b.connectionName} UNAVAILABLE (${q.status}) → NEXT ACCOUNT`),A.add(b.connectionId),B=q.error,C=q.status;continue}'
+        repl_fb_fallback = (
+            'let isFb=w?.includes("freebuff");'
+            'if(isFb){'
+            'let fbCode=q.status;'
+            # Connection-health errors handled by guardian
+            'if(fbCode===429||fbCode>=500||fbCode===401||fbCode===402){'
+            'let fbText=String(q.error||"").toLowerCase();'
+            'let isFbExhausted=fbCode===402||fbCode===401||'
+            '(fbCode===429&&(fbText.includes("allowance")||fbText.includes("quota")||fbText.includes("ceiling")||fbText.includes("exhaust")||fbText.includes("resets at")||(D&&D>Date.now()+600000)));'
+            'if(!isFbExhausted){'
+            't.warn("FREEBUFF_GUARDIAN",`[FreeBuff Guardian] Transient error (${fbCode}) on ${b.connectionName} - keeping account pinned to prevent multi-session bleeding`);'
+            'return q.response;}'
+            'let lockMs=D&&D>Date.now()?D:Date.now()+43200000;'
+            'await (0,f.vk)(b.connectionId,fbCode,q.error,w,x,lockMs);'
+            't.warn("FALLBACK",`[FreeBuff Guardian] Account ${b.connectionName} daily quota exhausted (${fbCode}) → sequentially promoting next account`);'
+            'A.add(b.connectionId),B=q.error,C=fbCode;continue;}'
+            # Non-connection errors (400 etc) - return directly, no failover
+            'if(fbCode<500&&fbCode!==429&&fbCode!==401&&fbCode!==402){'
+            'return q.response;}}'
+            + target_fb_fallback
+        )
+        if "FREEBUFF_GUARDIAN" not in c_8635_content and target_fb_fallback in c_8635_content:
+            patch_file(c_8635, target_fb_fallback, repl_fb_fallback, "Server router: FreeBuff exhaust-first guardian (8635.js)")
+
+    # 8c. Ensure 9Router DB providerStrategies reflects fill-first
+    try:
+        import sqlite3, json
+        db_path = os.path.expanduser("~/.9router/db/data.sqlite")
+        if os.path.exists(db_path):
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cur.execute("SELECT data FROM settings WHERE id = 1")
+            row = cur.fetchone()
+            if row:
+                st = json.loads(row[0])
+                ps = st.setdefault("providerStrategies", {})
+                ps["openai-compatible-chat-freebuff"] = {
+                    "fallbackStrategy": "fill-first"
+                }
+                cur.execute("UPDATE settings SET data = ? WHERE id = 1", (json.dumps(st),))
+                conn.commit()
+                print("  [✓] DB settings: Saved FreeBuff fallbackStrategy='fill-first'")
+            conn.close()
+    except Exception as e:
+        print(f"  [!] Failed to set DB providerStrategies: {e}")
+
+    # 8d. Ensure outbound request body model is synchronized with resolved model
+    c_8895 = os.path.join(build_dir, "server/chunks/8895.js")
+    if os.path.exists(c_8895):
+        with open(c_8895, "r", encoding="utf-8") as f:
+            c_8895_content = f.read()
+        target_aimodel = 'ai.model=(ap?.startsWith?.("openai-compatible-")&&aq)?aq:(0,g.kD)(aD)'
+        if target_aimodel not in c_8895_content:
+            target_aimodel = 'ai.model=(0,g.kD)(aD)'
+        repl_aimodel = (
+            '(()=>{if(ap?.includes("freebuff")){'
+            'let m={"deepseek-v4-flash":"deepseek/deepseek-v4-flash","glm-5.3-flash":"z-ai/glm-5.3-flash",'
+            '"solar-pro":"upstage/solar-pro4","solar-pro4":"upstage/solar-pro4","mimo-v2.6-pro":"mimo/mimo-v2.6-pro",'
+            '"mimo-v2.5":"mimo/mimo-v2.5","gpt-5.6-luna":"openai/gpt-5.6-luna","gemini-3.8-flash":"google/gemini-3.8-flash",'
+            '"claude-fable-5.1":"anthropic/claude-fable-5.1","muse-spark-1.2-contributor":"meta/muse-spark-1.2-contributor"}[aq];'
+            'if(m)aq=m}})(),'
+            'ai.model=(ap?.startsWith?.("openai-compatible-")&&aq)?aq:(0,g.kD)(aD)'
+        )
+        if "deepseek/deepseek-v4-flash" not in c_8895_content:
+            patch_file(c_8895, target_aimodel, repl_aimodel, "Server translator: preserve OpenAI-compatible mapped model (8895.js)")
+
+    c_6022 = os.path.join(build_dir, "server/chunks/6022.js")
+    if os.path.exists(c_6022):
+        target_trans = 'transformRequest(a,b,c,d){return b}'
+        repl_trans = 'transformRequest(a,b,c,d){return(this.provider?.startsWith?.("openai-compatible-")&&a&&b&&"object"==typeof b)?{...b,model:a}:b}'
+        patch_file(c_6022, target_trans, repl_trans, "Server OpenAI-compatible: forward resolved model in body (6022.js)")
+
     print("\n[✓] FreeBuff automated login & UI/UX patching completed successfully.")
     return True
 
