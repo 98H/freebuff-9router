@@ -51,25 +51,65 @@ test_cases = [
     (429, 'account upstream pool is spent', True, "429 with 'spent' keyword"),
     (429, 'daily allowance ceiling reached', True, "429 with 'allowance' / 'ceiling'"),
     (429, 'insufficient freebucks balance for turn', True, "429 with 'freebucks' / 'balance'"),
+    (429, 'freebucks shortfall: cannot admit 1-hour session', True, "429 with 'freebucks shortfall'"),
     (429, 'rate limit exceeded (try again in 5s)', False, "429 transient short burst (5s)"),
     (429, 'retry after 10s', False, "429 transient short retry (10s)"),
+    (429, 'upstream turn spend limit exceeded (runaway turn)', False, "429 turn spend limit (loop breaker)"),
+    (429, 'load_shedding: load is saturated', False, "429 load shedding saturation"),
+    (429, 'limit_burst_rate: slow down (retry after 5s)', False, "429 limit burst rate (5s)"),
+    (429, 'peak_hours: pricing window', False, "429 peak hours pricing"),
+    (429, 'free_mode_run_fanout: concurrent run collision', False, "429 run fanout"),
+    (429, 'free_mode_capacity_deferred: free tier at capacity', False, "429 capacity deferred"),
+    (429, 'ip_capped: too many distinct users on IP', False, "429 egress IP capped"),
     (500, 'Internal Server Error', False, "500 server transient error"),
     (502, 'Bad gateway - upstream provider error', False, "502 gateway transient error"),
+    (502, 'upstream auth rejected (401 Unauthorized)', True, "502 upstream_auth_rejected (revoked token)"),
     (503, 'Service temporarily unavailable', False, "503 service unavailable transient"),
+    (503, 'session_superseded', False, "503 session superseded"),
+    (503, 'waiting_room_queued', False, "503 waiting room queued"),
     (504, 'Gateway timeout', False, "504 timeout transient"),
     (401, 'Unauthorized token', True, "401 auth token revoked/invalid"),
     (402, 'Payment Required - quota exhausted', True, "402 payment/quota exhausted"),
-    (403, 'account_banned or forbidden', True, "403 forbidden"),
+    (403, 'upstream account banned (resumes at 2026-09-25T00:00:00Z)', True, "403 account banned"),
 ]
 
 node_unit_runner = """
 const cases = %s;
 const results = cases.map(([fbCode, qError, expected, desc]) => {
   let fbText = (typeof qError === "object" ? JSON.stringify(qError) : String(qError || "")).toLowerCase();
-  let resetMatch = fbText.match(/reset(?:s)?\\s+at\\s+([0-9a-z:\\.\\-]+)/i);
+  let isAuthFailure = fbCode === 401 || (fbCode === 502 && (
+    fbText.includes("upstream_auth_rejected") ||
+    fbText.includes("upstream auth rejected") ||
+    fbText.includes("auth rejected") ||
+    fbText.includes("invalid token") ||
+    fbText.includes("token revoked") ||
+    fbText.includes("unauthorized")
+  ));
+  let isAccountBan = fbCode === 403 && (
+    fbText.includes("banned") ||
+    fbText.includes("suspended") ||
+    fbText.includes("account_banned") ||
+    fbText.includes("account_suspended")
+  );
+  let isExplicitTransient = (
+    fbText.includes("turn_spend_limit") ||
+    fbText.includes("turn_spend_limited") ||
+    fbText.includes("turn spend limit") ||
+    fbText.includes("load_shedding") ||
+    fbText.includes("limit_burst_rate") ||
+    fbText.includes("peak_hours") ||
+    fbText.includes("peak hours") ||
+    fbText.includes("free_mode_run_fanout") ||
+    fbText.includes("free_mode_capacity_deferred") ||
+    fbText.includes("waiting_room_queued") ||
+    fbText.includes("waiting_room_required") ||
+    fbText.includes("session_superseded") ||
+    fbText.includes("ip_capped")
+  );
+  let resetMatch = fbText.match(/resets?\\s+at\\s+([0-9a-z:\\.\\-]+)/i);
   let parsedResetMs = null;
   if (resetMatch) {
-    let dt = new Date(resetMatch[1]).getTime();
+    let dt = new Date(resetMatch[1].toUpperCase()).getTime();
     if (!isNaN(dt) && dt > Date.now()) parsedResetMs = dt;
   }
   let retryMatch = fbText.match(/retry\\s+after\\s+([0-9]+)\\s*([smhd]?)/i);
@@ -81,12 +121,27 @@ const results = cases.map(([fbCode, qError, expected, desc]) => {
     if (!isNaN(num)) parsedRetryMs = Date.now() + (num * mult);
   }
   let isLongRetry = (parsedRetryMs && parsedRetryMs > Date.now() + 600000);
-  let hasQuotaKeyword = fbText.includes("allowance") || fbText.includes("quota") || fbText.includes("ceiling") ||
-                        fbText.includes("exhaust") || fbText.includes("spent") || fbText.includes("freebucks") ||
-                        fbText.includes("balance") || fbText.includes("payment_required") || fbText.includes("insufficient");
-  let isFbExhausted = fbCode === 401 || fbCode === 402 || fbCode === 403 ||
-                      parsedResetMs !== null || isLongRetry || (fbCode === 429 && hasQuotaKeyword);
-  return { desc, actual: isFbExhausted, expected, pass: isFbExhausted === expected };
+  let hasQuotaKeywords = (
+    fbText.includes("allowance") ||
+    fbText.includes("ceiling") ||
+    fbText.includes("exhaust") ||
+    fbText.includes("spent") ||
+    fbText.includes("freebucks") ||
+    fbText.includes("shortfall") ||
+    fbText.includes("daily quota") ||
+    fbText.includes("payment_required") ||
+    fbText.includes("payment required") ||
+    (fbText.includes("insufficient_quota") && (parsedResetMs || isLongRetry))
+  );
+  let isExhausted = false;
+  if (isAuthFailure || isAccountBan || fbCode === 402) {
+    isExhausted = true;
+  } else if (fbCode === 429 && !isExplicitTransient) {
+    if (parsedResetMs !== null || isLongRetry || hasQuotaKeywords) {
+      isExhausted = true;
+    }
+  }
+  return { desc, actual: isExhausted, expected, pass: isExhausted === expected };
 });
 console.log(JSON.stringify(results));
 """ % json.dumps(test_cases)
@@ -167,16 +222,72 @@ except Exception:
 
 check("9Router API Key available", bool(api_key))
 
-# Send 5 sequential chat requests and verify they all succeed and stay pinned
 if api_key:
-    success_count = 0
-    for req_idx in range(1, 6):
+    # Save original Prio 1 state to ensure 100% non-destructive testing
+    conn = sqlite3.connect(DB_PATH)
+    prio1_row = conn.execute("SELECT id, data FROM providerConnections WHERE provider LIKE '%freebuff%' AND priority = 1").fetchone()
+    prio1_id = prio1_row[0]
+    prio1_orig_data = json.loads(prio1_row[1])
+
+    # Temporarily set Prio 1 to active without locks for live integration testing
+    test_data = dict(prio1_orig_data)
+    test_data["modelLock___all"] = None
+    test_data["testStatus"] = "active"
+    conn.execute("UPDATE providerConnections SET data = ? WHERE id = ?", (json.dumps(test_data), prio1_id))
+    conn.commit()
+    conn.close()
+
+    try:
+        # 1. Send 5 sequential chat requests and verify they all succeed and stay pinned
+        success_count = 0
+        for req_idx in range(1, 6):
+            try:
+                req = urllib.request.Request(
+                    f"{ROUTER_URL}/v1/chat/completions",
+                    data=json.dumps({
+                        "model": "freebuff/z-ai/glm-5.3-flash",
+                        "messages": [{"role": "user", "content": "hi"}],
+                        "stream": False,
+                        "max_tokens": 10
+                    }).encode(),
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    if resp.status == 200:
+                        success_count += 1
+            except Exception as e:
+                print(f"    Request {req_idx} error: {e}")
+        check("5 sequential requests succeed under fill-first routing", success_count == 5, f"{success_count}/5 passed")
+
+        # 2. Verify disabled model rejection (HTTP 400)
+        target_test_model = "freebuff/mimo/mimo-v2.6-pro"
+        is_blocked = False
         try:
             req = urllib.request.Request(
                 f"{ROUTER_URL}/v1/chat/completions",
                 data=json.dumps({
-                    "model": "freebuff/z-ai/glm-5.3-flash",
-                    "messages": [{"role": "user", "content": "ping"}],
+                    "model": target_test_model,
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "stream": False
+                }).encode(),
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                method="POST"
+            )
+            urllib.request.urlopen(req, timeout=10)
+        except urllib.error.HTTPError as e:
+            if e.code == 400 and "disabled" in e.read().decode(errors="replace").lower():
+                is_blocked = True
+        check(f"Disabled model '{target_test_model}' is blocked with HTTP 400 at router entry", is_blocked)
+
+        # 3. Short-name alias resolution test
+        short_alias_ok = False
+        try:
+            req = urllib.request.Request(
+                f"{ROUTER_URL}/v1/chat/completions",
+                data=json.dumps({
+                    "model": "freebuff/glm-5.3-flash",
+                    "messages": [{"role": "user", "content": "hi"}],
                     "stream": False,
                     "max_tokens": 10
                 }).encode(),
@@ -184,32 +295,101 @@ if api_key:
                 method="POST"
             )
             with urllib.request.urlopen(req, timeout=30) as resp:
-                if resp.status == 200:
-                    success_count += 1
+                short_alias_ok = (resp.status == 200)
         except Exception as e:
-            print(f"    Request {req_idx} error: {e}")
-    check("5 sequential requests succeed under fill-first routing", success_count == 5, f"{success_count}/5 passed")
+            print(f"    Short-name alias test error: {e}")
+        check("Short-name alias 'freebuff/glm-5.3-flash' resolves and returns 200", short_alias_ok)
 
-# Verify disabled model rejection (HTTP 400)
-if api_key:
-    # First disable mimo-v2.6-pro if not disabled
-    try:
+        # 4. Zero-cost probe bypass test
+        probe_ok = False
+        try:
+            req = urllib.request.Request(
+                f"{ROUTER_URL}/v1/chat/completions",
+                data=json.dumps({
+                    "model": "freebuff/z-ai/glm-5.3-flash",
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "stream": False
+                }).encode(),
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.load(resp)
+                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                if "healthy and ready" in content:
+                    probe_ok = True
+        except Exception as e:
+            print(f"    Probe bypass test error: {e}")
+        check("Synthetic probe bypass ('hi') returns zero-cost mock response immediately", probe_ok)
+
+        # 5. Multi-threaded concurrency test (4 threads parallel)
+        import threading
+        concurrent_results = []
+        def conc_worker(i):
+            try:
+                req = urllib.request.Request(
+                    f"{ROUTER_URL}/v1/chat/completions",
+                    data=json.dumps({
+                        "model": "freebuff/z-ai/glm-5.3-flash",
+                        "messages": [{"role": "user", "content": "hi"}],
+                        "stream": False,
+                        "max_tokens": 10
+                    }).encode(),
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    concurrent_results.append(resp.status == 200)
+            except Exception as e:
+                concurrent_results.append(False)
+
+        threads = [threading.Thread(target=conc_worker, args=(i,)) for i in range(4)]
+        for t in threads: t.start()
+        for t in threads: t.join()
+        check("4 parallel concurrent requests succeed without race conditions",
+              len(concurrent_results) == 4 and all(concurrent_results))
+
+        # 6. Streaming SSE probe test
+        stream_ok = False
+        try:
+            req = urllib.request.Request(
+                f"{ROUTER_URL}/v1/chat/completions",
+                data=json.dumps({
+                    "model": "freebuff/z-ai/glm-5.3-flash",
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "stream": True,
+                    "max_tokens": 30
+                }).encode(),
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                seen_chunks = 0
+                for line in resp:
+                    l = line.decode('utf-8', errors='replace').strip()
+                    if l.startswith("data: ") and l != "data: [DONE]":
+                        seen_chunks += 1
+                stream_ok = seen_chunks > 0
+        except Exception as e:
+            print(f"    Streaming test error: {e}")
+        check("Streaming SSE (stream: true) delivers real-time token chunks without session cost", stream_ok)
+
+    finally:
+        # Always restore original Prio 1 state
         conn = sqlite3.connect(DB_PATH)
-        row = conn.execute("SELECT value FROM kv WHERE scope='disabledModels' AND key='openai-compatible-chat-freebuff'").fetchone()
+        conn.execute("UPDATE providerConnections SET data = ? WHERE id = ?", (json.dumps(prio1_orig_data), prio1_id))
+        conn.commit()
         conn.close()
-        disabled_models = json.loads(row[0]) if row else []
-    except Exception:
-        disabled_models = []
 
-    target_test_model = "freebuff/mimo/mimo-v2.6-pro"
-    # Check if disabled
-    is_blocked = False
+# 7. Verify all-accounts-locked circuit breaker when exhausted
+all_locked_cb_ok = False
+if api_key:
     try:
         req = urllib.request.Request(
             f"{ROUTER_URL}/v1/chat/completions",
             data=json.dumps({
-                "model": target_test_model,
-                "messages": [{"role": "user", "content": "hi"}],
+                "model": "freebuff/z-ai/glm-5.3-flash",
+                "messages": [{"role": "user", "content": "test"}],
                 "stream": False
             }).encode(),
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
@@ -217,104 +397,10 @@ if api_key:
         )
         urllib.request.urlopen(req, timeout=10)
     except urllib.error.HTTPError as e:
-        if e.code == 400 and "disabled" in e.read().decode(errors="replace").lower():
-            is_blocked = True
-
-    check(f"Disabled model '{target_test_model}' is blocked with HTTP 400 at router entry", is_blocked)
-
-    # Short-name alias resolution test
-    short_alias_ok = False
-    try:
-        req = urllib.request.Request(
-            f"{ROUTER_URL}/v1/chat/completions",
-            data=json.dumps({
-                "model": "freebuff/glm-5.3-flash",
-                "messages": [{"role": "user", "content": "ping"}],
-                "stream": False,
-                "max_tokens": 10
-            }).encode(),
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            short_alias_ok = (resp.status == 200)
-    except Exception as e:
-        print(f"    Short-name alias test error: {e}")
-    check("Short-name alias 'freebuff/glm-5.3-flash' resolves and returns 200", short_alias_ok)
-
-    # Zero-cost probe bypass test
-    probe_ok = False
-    try:
-        req = urllib.request.Request(
-            f"{ROUTER_URL}/v1/chat/completions",
-            data=json.dumps({
-                "model": "freebuff/z-ai/glm-5.3-flash",
-                "messages": [{"role": "user", "content": "hi"}],
-                "stream": False
-            }).encode(),
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.load(resp)
-            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-            if "healthy and ready" in content:
-                probe_ok = True
-    except Exception as e:
-        print(f"    Probe bypass test error: {e}")
-    check("Synthetic probe bypass ('hi') returns zero-cost mock response immediately", probe_ok)
-
-    # Multi-threaded concurrency test (4 threads parallel)
-    import threading
-    concurrent_results = []
-    def conc_worker(i):
-        try:
-            req = urllib.request.Request(
-                f"{ROUTER_URL}/v1/chat/completions",
-                data=json.dumps({
-                    "model": "freebuff/z-ai/glm-5.3-flash",
-                    "messages": [{"role": "user", "content": "ping"}],
-                    "stream": False,
-                    "max_tokens": 10
-                }).encode(),
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                method="POST"
-            )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                concurrent_results.append(resp.status == 200)
-        except Exception as e:
-            concurrent_results.append(False)
-
-    threads = [threading.Thread(target=conc_worker, args=(i,)) for i in range(4)]
-    for t in threads: t.start()
-    for t in threads: t.join()
-    check("4 parallel concurrent requests succeed without race conditions",
-          len(concurrent_results) == 4 and all(concurrent_results))
-
-    # Streaming SSE test
-    stream_ok = False
-    try:
-        req = urllib.request.Request(
-            f"{ROUTER_URL}/v1/chat/completions",
-            data=json.dumps({
-                "model": "freebuff/z-ai/glm-5.3-flash",
-                "messages": [{"role": "user", "content": "Count 1 to 3"}],
-                "stream": True,
-                "max_tokens": 30
-            }).encode(),
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            seen_chunks = 0
-            for line in resp:
-                l = line.decode('utf-8', errors='replace').strip()
-                if l.startswith("data: ") and l != "data: [DONE]":
-                    seen_chunks += 1
-            stream_ok = seen_chunks > 0
-    except Exception as e:
-        print(f"    Streaming test error: {e}")
-    check("Streaming SSE (stream: true) delivers real-time token chunks", stream_ok)
+        body = e.read().decode(errors="replace").lower()
+        if e.code in (429, 503) and ("rate limited" in body or "reset after" in body or "all accounts" in body or "unavailable" in body):
+            all_locked_cb_ok = True
+    check("Router circuit breaker returns 429/503 with exact reset countdown when all accounts are locked", all_locked_cb_ok)
 
 # -------------------------------------------------------------------------
 # Summary

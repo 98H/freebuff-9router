@@ -80,6 +80,8 @@ except urllib.error.HTTPError as e:
     msg = e.read()[:300].decode(errors="replace")
     if "upstream_auth_rejected" in msg or "upstream auth rejected" in msg or e.code in (401, 403):
         skip(f"no valid FreeBuff token registered yet (HTTP {e.code}) — finish the login flow")
+    elif e.code in (429, 503) and ("reset after" in msg or "all accounts" in msg or "rate limited" in msg or "unavailable" in msg):
+        skip(f"all FreeBuff accounts are currently rate-limited upstream ({msg.strip()})")
     else:
         bad(f"live chat HTTP {e.code}: {msg}"); fail = True
 except Exception as e:

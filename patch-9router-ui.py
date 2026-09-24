@@ -489,62 +489,54 @@ def run():
 
         target_fb_fallback = 'if("antigravity"===w&&(409===q.status||429===q.status)&&(z=await (0,g.XJ)(b.connectionId,q.status,x,i.accessToken,b.providerSpecificData))&&(D=z),"antigravity"===w&&z||(await (0,f.vk)(b.connectionId,q.status,q.error,w,x,D)).shouldFallback){t.warn("FALLBACK",`⇄ ACC:${b.connectionName} UNAVAILABLE (${q.status}) → NEXT ACCOUNT`),A.add(b.connectionId),B=q.error,C=q.status;continue}'
 
-        old_fb_guardian = (
-            'let isFb=w?.includes("freebuff");'
-            'if(isFb){'
-            'let fbCode=q.status;'
-            'if(fbCode===429||fbCode>=500||fbCode===401||fbCode===402){'
-            'let fbText=String(q.error||"").toLowerCase();'
-            'let isFbExhausted=fbCode===402||fbCode===401||'
-            '(fbCode===429&&(fbText.includes("allowance")||fbText.includes("quota")||fbText.includes("ceiling")||fbText.includes("exhaust")||fbText.includes("resets at")||(D&&D>Date.now()+600000)));'
-            'if(!isFbExhausted){'
-            't.warn("FREEBUFF_GUARDIAN",`[FreeBuff Guardian] Transient error (${fbCode}) on ${b.connectionName} - keeping account pinned to prevent multi-session bleeding`);'
-            'return q.response;}'
-            'let lockMs=D&&D>Date.now()?D:Date.now()+43200000;'
-            'await (0,f.vk)(b.connectionId,fbCode,q.error,w,x,lockMs);'
-            't.warn("FALLBACK",`[FreeBuff Guardian] Account ${b.connectionName} daily quota exhausted (${fbCode}) → sequentially promoting next account`);'
-            'A.add(b.connectionId),B=q.error,C=fbCode;continue;}'
-            'if(fbCode<500&&fbCode!==429&&fbCode!==401&&fbCode!==402){'
-            'return q.response;}}'
-        )
-
         repl_fb_guardian = (
             'let isFb=w?.includes("freebuff");'
             'if(isFb){'
-            'let fbCode=q.status;'
+            'let fbCode=Number(q.status);'
+            'if(fbCode>=400&&fbCode<500&&fbCode!==401&&fbCode!==402&&fbCode!==403&&fbCode!==429){'
+            'return q.response;}'
             'if(fbCode===429||fbCode>=500||fbCode===401||fbCode===402||fbCode===403){'
             'let fbText=(typeof q.error==="object"?JSON.stringify(q.error):String(q.error||"")).toLowerCase();'
-            'let resetMatch=fbText.match(/reset(?:s)?\\s+at\\s+([0-9a-z:\\.\\-]+)/i);'
+            'let isAuthFailure=fbCode===401||(fbCode===502&&(fbText.includes("upstream_auth_rejected")||fbText.includes("auth rejected")||fbText.includes("invalid token")||fbText.includes("token revoked")||fbText.includes("unauthorized")));'
+            'let isAccountBan=fbCode===403&&(fbText.includes("banned")||fbText.includes("suspended")||fbText.includes("account_banned")||fbText.includes("account_suspended"));'
+            'let isExplicitTransient=(fbText.includes("turn_spend_limit")||fbText.includes("turn_spend_limited")||fbText.includes("turn spend limit")||fbText.includes("load_shedding")||fbText.includes("limit_burst_rate")||fbText.includes("peak_hours")||fbText.includes("peak hours")||fbText.includes("free_mode_run_fanout")||fbText.includes("free_mode_capacity_deferred")||fbText.includes("waiting_room_queued")||fbText.includes("waiting_room_required")||fbText.includes("session_superseded")||fbText.includes("ip_capped"));'
+            'let resetMatch=fbText.match(/resets?\\s+at\\s+([0-9a-z:\\.\\-]+)/i);'
             'let parsedResetMs=null;'
-            'if(resetMatch){'
-            'let dt=new Date(resetMatch[1]).getTime();'
-            'if(!isNaN(dt)&&dt>Date.now())parsedResetMs=dt;}'
+            'if(resetMatch){let dt=new Date(resetMatch[1].toUpperCase()).getTime();if(!isNaN(dt)&&dt>Date.now())parsedResetMs=dt;}'
             'let retryMatch=fbText.match(/retry\\s+after\\s+([0-9]+)\\s*([smhd]?)/i);'
             'let parsedRetryMs=null;'
-            'if(retryMatch){'
-            'let num=parseInt(retryMatch[1],10);'
-            'let unit=retryMatch[2]?.toLowerCase();'
-            'let mult=unit==="h"?3600000:unit==="m"?60000:unit==="d"?86400000:1000;'
-            'if(!isNaN(num))parsedRetryMs=Date.now()+(num*mult);}'
+            'if(retryMatch){let num=parseInt(retryMatch[1],10);let unit=retryMatch[2]?.toLowerCase();let mult=unit==="h"?3600000:unit==="m"?60000:unit==="d"?86400000:1000;if(!isNaN(num))parsedRetryMs=Date.now()+(num*mult);}'
             'let isLongRetry=(parsedRetryMs&&parsedRetryMs>Date.now()+600000)||(D&&D>Date.now()+600000);'
-            'let hasQuotaKeyword=fbText.includes("allowance")||fbText.includes("quota")||fbText.includes("ceiling")||'
-            'fbText.includes("exhaust")||fbText.includes("spent")||fbText.includes("freebucks")||'
-            'fbText.includes("balance")||fbText.includes("payment_required")||fbText.includes("insufficient");'
-            'let isFbExhausted=fbCode===401||fbCode===402||fbCode===403||'
-            'parsedResetMs!==null||isLongRetry||(fbCode===429&&hasQuotaKeyword);'
-            'if(!isFbExhausted){'
+            'let hasQuotaKeywords=(fbText.includes("allowance")||fbText.includes("ceiling")||fbText.includes("exhaust")||fbText.includes("spent")||fbText.includes("freebucks")||fbText.includes("shortfall")||fbText.includes("daily quota")||fbText.includes("payment_required")||fbText.includes("payment required")||(fbText.includes("insufficient_quota")&&(parsedResetMs||isLongRetry)));'
+            'let isExhausted=false;'
+            'if(isAuthFailure||isAccountBan||fbCode===402){isExhausted=true;}'
+            'else if(fbCode===429&&!isExplicitTransient){if(parsedResetMs!==null||isLongRetry||hasQuotaKeywords){isExhausted=true;}}'
+            'if(!isExhausted){'
             't.warn("FREEBUFF_GUARDIAN",`[FreeBuff Guardian] Transient error (${fbCode}) on ${b.connectionName} - keeping account pinned to prevent multi-session bleeding`);'
             'return q.response;}'
             'let lockMs=parsedResetMs||parsedRetryMs||(D&&D>Date.now()?D:Date.now()+43200000);'
             'await (0,f.vk)(b.connectionId,fbCode,q.error,w,null,lockMs);'
             'let resetStr=new Date(lockMs).toISOString();'
-            't.warn("FALLBACK",`[FreeBuff Guardian] Account ${b.connectionName} quota exhausted (${fbCode}, reset: ${resetStr}) → sequentially promoting next account`);'
+            't.warn("FALLBACK",`[FreeBuff Guardian] Account ${b.connectionName} quota/auth exhausted (${fbCode}, reset: ${resetStr}) → sequentially promoting next account`);'
             'A.add(b.connectionId),B=q.error,C=fbCode;continue;}'
             'if(fbCode<500&&fbCode!==429&&fbCode!==401&&fbCode!==402&&fbCode!==403){'
             'return q.response;}}'
         )
 
-        patch_file(c_8635, [old_fb_guardian + target_fb_fallback, old_fb_guardian, target_fb_fallback], repl_fb_guardian + target_fb_fallback, "Server router: FreeBuff exhaust-first guardian (8635.js)")
+        # Match existing guardian snippets in 8635.js if present
+        current_snippet = None
+        if os.path.exists(c_8635):
+            with open(c_8635, "r", encoding="utf-8") as f:
+                content = f.read()
+            idx = content.find("FREEBUFF_GUARDIAN")
+            if idx != -1:
+                start = content.rfind('let isFb=w?.includes("freebuff");', 0, idx)
+                end = content.find('if("antigravity"===w', idx)
+                if start != -1 and end != -1:
+                    current_snippet = content[start:end]
+
+        candidates = [c for c in [current_snippet, target_fb_fallback] if c]
+        patch_file(c_8635, candidates, repl_fb_guardian + target_fb_fallback, "Server router: FreeBuff exhaust-first guardian (8635.js)")
 
     # 8c. Ensure 9Router DB providerStrategies reflects fill-first
     try:
