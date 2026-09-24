@@ -303,6 +303,13 @@ def run():
                 '(!tb||f.includes("freebuff"))&&(0,i.jsx)(K,{isOpen:ej,providerAlias:tN,providerDisplayAlias:tS,onSave:async(e,t)=>{await tJ(e,"llm",tN,t),ew(!1)},onClose:()=>ew(!1)})',
                 "Client: FreeBuff Add Model modal"
             )
+            # Remove Round Robin toggle exclusively for FreeBuff in UI
+            patch_file(
+                c_detail,
+                '(0,i.jsxs)("div",{className:"flex flex-wrap items-center gap-2",children:[(0,i.jsx)("span",{className:"text-xs text-text-muted font-medium",children:"Round Robin"}),(0,i.jsx)(c.lM,{checked:"round-robin"===e$,onChange:e=>{let t=e?"round-robin":null,s=e?eP||"1":eP;e&&!eP&&eE("1"),eO(t),t_(t,s)}}),"round-robin"===e$&&(0,i.jsxs)("div",{className:"flex items-center gap-1.5",children:[(0,i.jsx)("span",{className:"text-xs text-text-muted",children:"Sticky:"}),(0,i.jsx)("input",{type:"number",min:1,value:eP,onChange:e=>{var t;eE(t=e.target.value),t_("round-robin",t)},placeholder:"1",className:"w-14 px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:border-primary"})]})]})',
+                '!(f==="freebuff"||f?.includes("freebuff"))&&(0,i.jsxs)("div",{className:"flex flex-wrap items-center gap-2",children:[(0,i.jsx)("span",{className:"text-xs text-text-muted font-medium",children:"Round Robin"}),(0,i.jsx)(c.lM,{checked:"round-robin"===e$,onChange:e=>{let t=e?"round-robin":null,s=e?eP||"1":eP;e&&!eP&&eE("1"),eO(t),t_(t,s)}}),"round-robin"===e$&&(0,i.jsxs)("div",{className:"flex items-center gap-1.5",children:[(0,i.jsx)("span",{className:"text-xs text-text-muted",children:"Sticky:"}),(0,i.jsx)("input",{type:"number",min:1,value:eP,onChange:e=>{var t;eE(t=e.target.value),t_("round-robin",t)},placeholder:"1",className:"w-14 px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:border-primary"})]})]})',
+                "Client: Hide Round Robin toggle exclusively for FreeBuff"
+            )
 
     # -----------------------------------------------------------------
     # 5. Server Provider Detail Page: Action Routing & UI Polishing
@@ -394,6 +401,13 @@ def run():
             '!br&&(0,d.jsx)(M,{isOpen:au,providerAlias:bw,providerDisplayAlias:by,onSave:async(a,b)=>{await bN(a,"llm",bw,b),av(!1)},onClose:()=>av(!1)})',
             '(!br||q.includes("freebuff"))&&(0,d.jsx)(M,{isOpen:au,providerAlias:bw,providerDisplayAlias:by,onSave:async(a,b)=>{await bN(a,"llm",bw,b),av(!1)},onClose:()=>av(!1)})',
             "Server: FreeBuff Add Model modal"
+        )
+        # Remove Round Robin toggle exclusively for FreeBuff in UI (Server)
+        patch_file(
+            s_detail,
+            '(0,d.jsxs)("div",{className:"flex flex-wrap items-center gap-2",children:[(0,d.jsx)("span",{className:"text-xs text-text-muted font-medium",children:"Round Robin"}),(0,d.jsx)(k.lM,{checked:"round-robin"===aC,onChange:a=>{let b=a?"round-robin":null,c=a?aE||"1":aE;a&&!aE&&aF("1"),aD(b),bI(b,c)}}),"round-robin"===aC&&(0,d.jsxs)("div",{className:"flex items-center gap-1.5",children:[(0,d.jsx)("span",{className:"text-xs text-text-muted",children:"Sticky:"}),(0,d.jsx)("input",{type:"number",min:1,value:aE,onChange:a=>{var b;aF(b=a.target.value),bI("round-robin",b)},placeholder:"1",className:"w-14 px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:border-primary"})]})]})',
+            '!(q==="freebuff"||q?.includes("freebuff"))&&(0,d.jsxs)("div",{className:"flex flex-wrap items-center gap-2",children:[(0,d.jsx)("span",{className:"text-xs text-text-muted font-medium",children:"Round Robin"}),(0,d.jsx)(k.lM,{checked:"round-robin"===aC,onChange:a=>{let b=a?"round-robin":null,c=a?aE||"1":aE;a&&!aE&&aF("1"),aD(b),bI(b,c)}}),"round-robin"===aC&&(0,d.jsxs)("div",{className:"flex items-center gap-1.5",children:[(0,d.jsx)("span",{className:"text-xs text-text-muted",children:"Sticky:"}),(0,d.jsx)("input",{type:"number",min:1,value:aE,onChange:a=>{var b;aF(b=a.target.value),bI("round-robin",b)},placeholder:"1",className:"w-14 px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:border-primary"})]})]})',
+            "Server: Hide Round Robin toggle exclusively for FreeBuff"
         )
 
     # -----------------------------------------------------------------

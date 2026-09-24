@@ -389,7 +389,7 @@ if api_key:
             f"{ROUTER_URL}/v1/chat/completions",
             data=json.dumps({
                 "model": "freebuff/z-ai/glm-5.3-flash",
-                "messages": [{"role": "user", "content": "test"}],
+                "messages": [{"role": "user", "content": "please summarize quantum mechanics"}],
                 "stream": False
             }).encode(),
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
