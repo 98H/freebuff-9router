@@ -222,6 +222,100 @@ if api_key:
 
     check(f"Disabled model '{target_test_model}' is blocked with HTTP 400 at router entry", is_blocked)
 
+    # Short-name alias resolution test
+    short_alias_ok = False
+    try:
+        req = urllib.request.Request(
+            f"{ROUTER_URL}/v1/chat/completions",
+            data=json.dumps({
+                "model": "freebuff/glm-5.3-flash",
+                "messages": [{"role": "user", "content": "ping"}],
+                "stream": False,
+                "max_tokens": 10
+            }).encode(),
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            short_alias_ok = (resp.status == 200)
+    except Exception as e:
+        print(f"    Short-name alias test error: {e}")
+    check("Short-name alias 'freebuff/glm-5.3-flash' resolves and returns 200", short_alias_ok)
+
+    # Zero-cost probe bypass test
+    probe_ok = False
+    try:
+        req = urllib.request.Request(
+            f"{ROUTER_URL}/v1/chat/completions",
+            data=json.dumps({
+                "model": "freebuff/z-ai/glm-5.3-flash",
+                "messages": [{"role": "user", "content": "hi"}],
+                "stream": False
+            }).encode(),
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.load(resp)
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            if "healthy and ready" in content:
+                probe_ok = True
+    except Exception as e:
+        print(f"    Probe bypass test error: {e}")
+    check("Synthetic probe bypass ('hi') returns zero-cost mock response immediately", probe_ok)
+
+    # Multi-threaded concurrency test (4 threads parallel)
+    import threading
+    concurrent_results = []
+    def conc_worker(i):
+        try:
+            req = urllib.request.Request(
+                f"{ROUTER_URL}/v1/chat/completions",
+                data=json.dumps({
+                    "model": "freebuff/z-ai/glm-5.3-flash",
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "stream": False,
+                    "max_tokens": 10
+                }).encode(),
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                concurrent_results.append(resp.status == 200)
+        except Exception as e:
+            concurrent_results.append(False)
+
+    threads = [threading.Thread(target=conc_worker, args=(i,)) for i in range(4)]
+    for t in threads: t.start()
+    for t in threads: t.join()
+    check("4 parallel concurrent requests succeed without race conditions",
+          len(concurrent_results) == 4 and all(concurrent_results))
+
+    # Streaming SSE test
+    stream_ok = False
+    try:
+        req = urllib.request.Request(
+            f"{ROUTER_URL}/v1/chat/completions",
+            data=json.dumps({
+                "model": "freebuff/z-ai/glm-5.3-flash",
+                "messages": [{"role": "user", "content": "Count 1 to 3"}],
+                "stream": True,
+                "max_tokens": 30
+            }).encode(),
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            seen_chunks = 0
+            for line in resp:
+                l = line.decode('utf-8', errors='replace').strip()
+                if l.startswith("data: ") and l != "data: [DONE]":
+                    seen_chunks += 1
+            stream_ok = seen_chunks > 0
+    except Exception as e:
+        print(f"    Streaming test error: {e}")
+    check("Streaming SSE (stream: true) delivers real-time token chunks", stream_ok)
+
 # -------------------------------------------------------------------------
 # Summary
 # -------------------------------------------------------------------------
